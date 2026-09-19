@@ -1,0 +1,92 @@
+name: Printable AppImage
+
+# Builds the Linux amd64 AppImage from this patch branch and publishes it as a
+# release asset. The Printable slicer image downloads that asset and checks it
+# against a recorded SHA-256, so a published tag is written once and never moved.
+#
+# Manual dispatch only: a build takes hours and every successful run creates a
+# public release, so it is never triggered by a push.
+on:
+  workflow_dispatch:
+    inputs:
+      build-deps-only:
+        description: 'Only build dependencies, to warm a cold cache'
+        type: boolean
+        default: false
+
+# A dependency build takes hours from cold, so a second dispatch waits rather
+# than discarding the first one's work.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # amd64 only: the Printable slicer image is Linux/amd64. The empty arch is
+    # load-bearing upstream — it selects the unsuffixed 'linux-clang' dependency
+    # cache key and the unsuffixed AppImage name.
+    uses: ./.github/workflows/build_check_cache.yml
+    with:
+      os: ubuntu-24.04
+      arch: ''
+      build-deps-only: ${{ inputs.build-deps-only }}
+    secrets: inherit
+
+  publish:
+    name: Publish AppImage
+    needs: build
+    if: ${{ !inputs.build-deps-only }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download the built AppImage
+        uses: actions/download-artifact@v8
+        with:
+          pattern: OrcaSlicer_Linux_ubuntu_2404_*
+          path: appimage
+          merge-multiple: true
+
+      # The upstream asset name carries the version but nothing about the source
+      # it was built from. Naming the release after the built revision keeps a
+      # patched build from being mistaken for the stock one of the same version.
+      - name: Name the release after the built revision
+        id: release
+        run: |
+          set -euo pipefail
+          built=$(find appimage -name '*.AppImage')
+          test -f "$built"
+          version=$(basename "$built" .AppImage)
+          version=${version#OrcaSlicer_Linux_AppImage_Ubuntu2404_}
+          version=${version#V}
+          tag="printable-${version}-${GITHUB_SHA:0:7}"
+          asset="OrcaSlicer_Linux_AppImage_Ubuntu2404_${tag}.AppImage"
+          mv "$built" "$asset"
+          sha256sum "$asset" > "$asset.sha256"
+          {
+            echo "tag=$tag"
+            echo "asset=$asset"
+            echo "sha256=$(cut -d' ' -f1 "$asset.sha256")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          ASSET: ${{ steps.release.outputs.asset }}
+          SHA256: ${{ steps.release.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$TAG is already published; pin that release rather than replacing it" >&2
+            exit 1
+          fi
+          notes=$(printf '%s\n\nSHA-256: `%s`\n\n%s\n' \
+            "Linux amd64 AppImage built from ${GITHUB_REPOSITORY}@${GITHUB_SHA}." \
+            "$SHA256" \
+            "OrcaSlicer is licensed under the AGPL-3.0. The complete source for this binary is the repository and commit named above.")
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "OrcaSlicer $TAG" \
+            --notes "$notes" \
+            "$ASSET" "$ASSET.sha256"
