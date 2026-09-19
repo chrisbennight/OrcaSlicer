@@ -1,8 +1,8 @@
-name: Printable AppImage
+name: Linux AppImage Release
 
-# Builds the Linux amd64 AppImage from this patch branch and publishes it as a
-# release asset. The Printable slicer image downloads that asset and checks it
-# against a recorded SHA-256, so a published tag is written once and never moved.
+# Builds the Linux amd64 AppImage from the dispatched branch and publishes it as
+# a release asset with its SHA-256. Consumers pin a specific asset by URL and
+# checksum, so a published tag is written once and never moved.
 #
 # Manual dispatch only: a build takes hours and every successful run creates a
 # public release, so it is never triggered by a push.
@@ -22,9 +22,9 @@ concurrency:
 
 jobs:
   build:
-    # amd64 only: the Printable slicer image is Linux/amd64. The empty arch is
-    # load-bearing upstream — it selects the unsuffixed 'linux-clang' dependency
-    # cache key and the unsuffixed AppImage name.
+    # amd64 only. The empty arch is load-bearing upstream — it selects the
+    # unsuffixed 'linux-clang' dependency cache key and the unsuffixed AppImage
+    # name.
     uses: ./.github/workflows/build_check_cache.yml
     with:
       os: ubuntu-24.04
@@ -49,7 +49,8 @@ jobs:
 
       # The upstream asset name carries the version but nothing about the source
       # it was built from. Naming the release after the built revision keeps a
-      # patched build from being mistaken for the stock one of the same version.
+      # build of this fork from being mistaken for an upstream release of the
+      # same version.
       - name: Name the release after the built revision
         id: release
         run: |
@@ -59,7 +60,7 @@ jobs:
           version=$(basename "$built" .AppImage)
           version=${version#OrcaSlicer_Linux_AppImage_Ubuntu2404_}
           version=${version#V}
-          tag="printable-${version}-${GITHUB_SHA:0:7}"
+          tag="local-${version}-${GITHUB_SHA:0:7}"
           asset="OrcaSlicer_Linux_AppImage_Ubuntu2404_${tag}.AppImage"
           mv "$built" "$asset"
           sha256sum "$asset" > "$asset.sha256"
