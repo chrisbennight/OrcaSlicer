@@ -641,8 +641,14 @@ jobs:
           retention-days: 5
           if-no-files-found: error
 
+      # Skipped on this branch. This step installs the per-vendor caches and
+      # deletes the preset JSONs they replace, which is a packaging choice
+      # rather than a verification: an uncached vendor is still supported and
+      # is simply parsed at startup. The consumer of this build reads the
+      # vendor JSON tree directly, so the build keeps it and forgoes the
+      # startup speedup.
       - name: Build system preset cache (Linux)
-        if: runner.os == 'Linux'
+        if: false
         shell: bash
         run: |
           # Both were packed from resources/ before the caches existed, so the
