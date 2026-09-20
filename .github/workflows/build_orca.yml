@@ -477,8 +477,13 @@ jobs:
           retention-days: 5
           if-no-files-found: error
 
+      # Skipped on this branch. The suite is cloned from its own tip with no
+      # pinned revision, and that tip has moved past this release line: it now
+      # asserts command-line options this version does not implement, so the
+      # step fails on an unmodified checkout of it and verifies nothing here.
+      # The unit tests built alongside the slicer still run.
       - name: Run external slicer regression tests
-        if: runner.os == 'Linux' && inputs.arch != 'aarch64'
+        if: false
         timeout-minutes: 20
         shell: bash
         run: |
