@@ -3336,21 +3336,6 @@ int CLI::run(int argc, char **argv)
         }
     }
 
-    // Tool ordering and filament grouping take the filament count from filament_colour.
-    // A loaded filament profile that sets no colour leaves the single default entry,
-    // so give each remaining filament the first colour. Colours set with
-    // --filament-colour then replace every slot below.
-    ConfigOptionStrings *loaded_filament_colors_option = m_print_config.option<ConfigOptionStrings>("filament_colour");
-    if (loaded_filament_colors_option && !loaded_filament_colors_option->values.empty()
-        && (loaded_filament_colors_option->values.size() < (size_t)filament_count))
-    {
-        std::vector<std::string>& loaded_filament_colors = loaded_filament_colors_option->values;
-        const std::string first_colour = loaded_filament_colors.front();
-        BOOST_LOG_TRIVIAL(warning) << boost::format("filament_colour has %1% entries for %2% filaments, repeating the first colour")
-            %loaded_filament_colors.size() %filament_count;
-        loaded_filament_colors.resize(filament_count, first_colour);
-    }
-
     //compute the flush volume
     ConfigOptionStrings *selected_filament_colors_option = m_extra_config.option<ConfigOptionStrings>("filament_colour");
     ConfigOptionStrings *project_filament_colors_option = m_print_config.option<ConfigOptionStrings>("filament_colour");
