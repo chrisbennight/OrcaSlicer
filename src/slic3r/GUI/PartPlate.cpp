@@ -933,12 +933,10 @@ void PartPlate::render_exclude_area(bool force_default_color) {
 	// draw exclude area
 	glsafe(::glDepthMask(GL_FALSE));
 
-	if (m_selected) {
-		glsafe(::glColor4fv(select_color.data()));
-	}
-	else {
-		glsafe(::glColor4fv(unselect_color.data()));
-	}
+#if !SLIC3R_OPENGL_ES
+    if (!OpenGLManager::get_gl_info().is_core_profile())
+        glsafe(::glColor4fv((m_selected ? select_color : unselect_color).data()));
+#endif // !SLIC3R_OPENGL_ES
 
 	m_exclude_triangles.set_color(m_selected ? select_color : unselect_color);
     m_exclude_triangles.render();
@@ -1531,7 +1529,7 @@ std::vector<int> PartPlate::get_extruders(bool conside_custom_gcode) const
     glb_support |= glb_config.opt_int("raft_layers") > 0;
 
 	for (int obj_idx = 0; obj_idx < m_model->objects.size(); obj_idx++) {
-		if (!contain_instance_totally(obj_idx, 0))
+		if (!has_fully_contained_instance(obj_idx))
 			continue;
 
 		ModelObject* mo = m_model->objects[obj_idx];
@@ -2204,7 +2202,7 @@ Vec3d PartPlate::estimate_wipe_tower_size(const DynamicPrintConfig & config, con
         return wipe_tower_size;
 
     for (int obj_idx = 0; obj_idx < m_model->objects.size(); obj_idx++) {
-        if (!use_global_objects && !contain_instance_totally(obj_idx, 0))
+        if (!use_global_objects && !has_fully_contained_instance(obj_idx))
             continue;
 
 		BoundingBoxf3 bbox = m_model->objects[obj_idx]->bounding_box_exact();
@@ -2594,6 +2592,16 @@ bool PartPlate::contain_instance_totally(ModelObject* object, int instance_id) c
 		result = contain_instance_totally(obj_id, instance_id);
 
 	return result;
+}
+
+bool PartPlate::has_fully_contained_instance(int obj_id) const
+{
+    for (auto it = obj_to_instance_set.lower_bound({obj_id, 0});
+         it != obj_to_instance_set.end() && it->first == obj_id; ++it) {
+        if (contain_instance_totally(it->first, it->second))
+            return true;
+    }
+    return false;
 }
 
 //judge whether instance is totally included in plate or not
