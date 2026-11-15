@@ -119,6 +119,7 @@ int GUI_Run(GUI_InitParams &params)
             gui->app_config->set("show_splash_screen", "false");
             gui->app_config->set("background_processing", "0");
             gui->app_config->set("installed_networking", "false");
+            gui->app_config->set_bool(SETTING_USE_ENCRYPTED_TOKEN_FILE, true);
             gui->app_config->set("update_network_plugin", "false");
             gui->app_config->set("sync_system_preset", "false");
             gui->app_config->set("sync_user_preset", "false");

@@ -3086,7 +3086,8 @@ bool GUI_App::on_init_inner()
             wxMessageBox("Force using legacy bambu networking plugin because debugger is attached! If the app terminates itself immediately, please delete installed plugin and try again!");
         }
     } */
-    copy_network_if_available();
+    if (init_params->capture_workspace.empty())
+        copy_network_if_available();
     on_init_network();
 
     if (m_agent && m_agent->is_user_login()) {
@@ -3386,6 +3387,17 @@ void GUI_App::copy_network_if_available()
 
 bool GUI_App::on_init_network(bool try_backup)
 {
+    if (init_params != nullptr && !init_params->capture_workspace.empty()) {
+        // Native viewport construction needs empty managers, but must never
+        // start cloud agents or access an interactive user's credential store.
+        if (!m_device_manager)
+            m_device_manager = new Slic3r::DeviceManager();
+        if (!m_user_manager)
+            m_user_manager = new Slic3r::UserManager();
+        BOOST_LOG_TRIVIAL(info) << "Workspace capture uses offline GUI initialization";
+        return false;
+    }
+
     // Clean up stale ".old" files left by install_plugin() when it had to rename an in-use
     // DLL aside (see the rename-aside path in install_plugin). This runs before the plug-in
     // is (re)loaded - at startup nothing is mapped yet, and on a hot reload the previous
