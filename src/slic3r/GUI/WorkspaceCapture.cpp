@@ -54,6 +54,14 @@ json matrix_json(const Transform3d& transform)
     return matrix;
 }
 
+void check_gl_error(const char* stage)
+{
+    const GLenum error = glGetError();
+    if (error != GL_NO_ERROR)
+        throw std::runtime_error(std::string("Native workspace ") + stage +
+            " failed (OpenGL error " + std::to_string(error) + ")");
+}
+
 std::set<int> selection(const json& request, const char* key, int count)
 {
     std::set<int> result;
@@ -258,20 +266,26 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
     camera.apply_viewport();
     camera.apply_projection(bounds);
 
+    // The interactive GUI shares this context and may leave errors from its
+    // toolbar drawing. Capture checks only its own framebuffer and draw calls.
+    for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+        BOOST_LOG_TRIVIAL(warning) << "Discarding an earlier GUI OpenGL error before capture: " << error;
     Framebuffer framebuffer;
     framebuffer.allocate(width, height);
+    check_gl_error("framebuffer allocation");
     glClearColor(0.12f, 0.14f, 0.18f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
     const bool bottom = camera.get_dir_forward().z() > 0;
     plates.render(camera.get_view_matrix(), camera.get_projection_matrix(), bottom,
         false, true, -1, false, true, &selected_plates, show_identifiers, show_beds, false);
+    check_gl_error("plate rendering");
     canvas.render_workspace_volumes(visible);
+    check_gl_error("model rendering");
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     std::vector<uint8_t> pixels(size_t(width) * size_t(height) * 3);
     glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
-    if (glGetError() != GL_NO_ERROR)
-        throw std::runtime_error("Native workspace rendering failed");
+    check_gl_error("pixel readback");
     const size_t row_bytes = size_t(width) * 3;
     for (int row = 0; row < height / 2; ++row)
         std::swap_ranges(pixels.begin() + size_t(row) * row_bytes,

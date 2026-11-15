@@ -19,6 +19,9 @@
 #include <boost/nowide/convert.hpp>
 #include <boost/nowide/fstream.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/log/core.hpp>
+#include <boost/log/trivial.hpp>
+#include <boost/log/utility/setup/console.hpp>
 
 #if __APPLE__
     #include <signal.h>
@@ -42,6 +45,16 @@ int GUI_Run(GUI_InitParams &params)
     signal(SIGCHLD, SIG_DFL);
 #endif // __APPLE__
 
+    boost::shared_ptr<boost::log::sinks::sink> capture_log;
+    if (!params.capture_workspace.empty())
+        capture_log = boost::log::add_console_log(boost::nowide::cerr,
+            boost::log::keywords::filter = boost::log::trivial::severity >= boost::log::trivial::warning,
+            boost::log::keywords::format = "[%Severity%] %Message%",
+            boost::log::keywords::auto_flush = true);
+    Slic3r::ScopeGuard remove_capture_log([&]() {
+        if (capture_log)
+            boost::log::core::get()->remove_sink(capture_log);
+    });
     boost::filesystem::path capture_data;
     Slic3r::ScopeGuard cleanup_capture_data([&]() {
         if (!capture_data.empty()) {
@@ -62,6 +75,7 @@ int GUI_Run(GUI_InitParams &params)
         int Enter(wxDialog*) override
         {
             params.capture_requires_interaction = true;
+            BOOST_LOG_TRIVIAL(error) << "Workspace capture requires user interaction";
             return wxID_CANCEL;
         }
     } dialogs(params);

@@ -773,6 +773,7 @@ void GUI_App::post_init()
             BOOST_LOG_TRIVIAL(error) << "Workspace capture failed: " << error.what();
             init_params->capture_exit_code = 1;
         }
+        mainframe->shutdown();
         ExitMainLoop();
         return;
     }
