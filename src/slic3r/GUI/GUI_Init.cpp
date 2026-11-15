@@ -17,6 +17,7 @@
 #include <boost/nowide/iostream.hpp>
 #include <boost/nowide/convert.hpp>
 #include <boost/nowide/fstream.hpp>
+#include <boost/filesystem.hpp>
 
 #if __APPLE__
     #include <signal.h>
@@ -40,11 +41,38 @@ int GUI_Run(GUI_InitParams &params)
     signal(SIGCHLD, SIG_DFL);
 #endif // __APPLE__
 
-    //BBS: remove the try-catch and let exception goto above
+    boost::filesystem::path capture_data;
+    Slic3r::ScopeGuard cleanup_capture_data([&]() {
+        if (!capture_data.empty()) {
+            boost::system::error_code error;
+            boost::filesystem::current_path(params.capture_output_directory, error);
+            if (error)
+                BOOST_LOG_TRIVIAL(error) << "Could not restore the capture working directory: " << error.message();
+            error.clear();
+            boost::filesystem::remove_all(capture_data, error);
+            if (error)
+                BOOST_LOG_TRIVIAL(error) << "Could not remove disposable capture configuration: " << error.message();
+        }
+    });
     try {
         if (!params.capture_workspace.empty()) {
+            params.capture_workspace = boost::filesystem::canonical(params.capture_workspace).string();
             boost::nowide::ifstream request(params.capture_workspace);
             validate_workspace_capture_request(nlohmann::json::parse(request));
+            params.capture_output_directory = boost::filesystem::current_path().string();
+            for (const char* name : {"capture.png", "capture.json"})
+                if (boost::filesystem::exists(boost::filesystem::path(params.capture_output_directory) / name))
+                    throw std::runtime_error("Workspace capture output already exists; use a fresh output directory");
+            for (auto& source : params.input_files)
+                source = boost::filesystem::canonical(source).string();
+            const auto directory = boost::filesystem::temp_directory_path() /
+                boost::filesystem::unique_path("orca-capture-%%%%-%%%%-%%%%-%%%%");
+            if (!boost::filesystem::create_directory(directory))
+                throw std::runtime_error("Could not create disposable capture configuration");
+            capture_data = directory;
+            boost::filesystem::permissions(capture_data, boost::filesystem::owner_all);
+            // Never load or change an interactive user's application profile.
+            Slic3r::set_data_dir(capture_data.string());
         }
         //GUI::GUI_App* gui = new GUI::GUI_App(params.start_as_gcodeviewer ? GUI::GUI_App::EAppMode::GCodeViewer : GUI::GUI_App::EAppMode::Editor);
         GUI::GUI_App* gui = new GUI::GUI_App();

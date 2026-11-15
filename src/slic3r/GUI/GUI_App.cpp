@@ -758,7 +758,7 @@ void GUI_App::post_init()
             // including estimated towers, even when the package contains G-code.
             plater_->set_using_exported_file(false);
             plater_->canvas3D()->render(true);
-            capture_workspace(init_params->capture_workspace);
+            capture_workspace(init_params->capture_workspace, init_params->capture_output_directory);
             init_params->capture_exit_code = 0;
         } catch (const std::exception& error) {
             BOOST_LOG_TRIVIAL(error) << "Workspace capture failed: " << error.what();

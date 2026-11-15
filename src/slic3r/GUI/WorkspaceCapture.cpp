@@ -13,6 +13,7 @@
 #include "nlohmann/json.hpp"
 
 #include <boost/nowide/fstream.hpp>
+#include <boost/filesystem.hpp>
 #include <cmath>
 #include <limits>
 #include <set>
@@ -96,7 +97,7 @@ struct Framebuffer {
 };
 }
 
-void capture_workspace(const std::string& request_path)
+void capture_workspace(const std::string& request_path, const std::string& output_directory)
 {
     boost::nowide::ifstream input(request_path);
     const json request = json::parse(input);
@@ -127,6 +128,7 @@ void capture_workspace(const std::string& request_path)
     const bool show_beds = visibility.at("beds").get<bool>();
     const bool show_identifiers = visibility.at("plate_identifiers").get<bool>();
     const bool show_towers = visibility.at("prime_towers").get<bool>();
+    const bool all_plates = request.at("plates").empty();
     auto visible = [&](const GLVolume& volume) {
         if (volume.is_modifier)
             return false;
@@ -134,7 +136,7 @@ void capture_workspace(const std::string& request_path)
         if (volume.is_wipe_tower)
             return show_towers && selected_plates.count(object - 1000) != 0;
         return (selected_objects.empty() || selected_objects.count(object) != 0) &&
-            selected_plates.count(plates.find_instance_belongs(object, volume.composite_id.instance_id)) != 0;
+            (all_plates || selected_plates.count(plates.find_instance(object, volume.composite_id.instance_id)) != 0);
     };
 
     BoundingBoxf3 bounds;
@@ -175,7 +177,6 @@ void capture_workspace(const std::string& request_path)
     const std::string projection = view.at("projection").get<std::string>();
     if (projection != "orthographic" && projection != "perspective")
         throw std::runtime_error("Unsupported native capture projection");
-    camera.set_type(projection == "orthographic" ? Camera::EType::Ortho : Camera::EType::Perspective);
     camera.set_scene_box(bounds);
     camera.set_viewport(0, 0, width, height);
     const std::string preset = view.at("preset").get<std::string>();
@@ -197,6 +198,9 @@ void capture_workspace(const std::string& request_path)
         rotation.linear() = orientation.toRotationMatrix();
         camera.set_rotation(rotation);
     }
+    // Axis presets may choose an automatic projection. The explicit request
+    // wins after the preset and custom orientation have been applied.
+    camera.set_type(projection == "orthographic" ? Camera::EType::Ortho : Camera::EType::Perspective);
     const double margin = view.at("margin").get<double>();
     if (!std::isfinite(margin) || margin < 1)
         throw std::runtime_error("Automatic capture framing requires a finite margin of at least one");
@@ -220,8 +224,16 @@ void capture_workspace(const std::string& request_path)
     const bool bottom = camera.get_dir_forward().z() > 0;
     plates.render(camera.get_view_matrix(), camera.get_projection_matrix(), bottom,
         false, true, -1, false, true, &selected_plates, show_identifiers, show_beds);
+    GLShaderProgram* shader = wxGetApp().get_shader("gouraud");
+    if (shader == nullptr)
+        throw std::runtime_error("Native model shader is unavailable");
+    shader->start_using();
+    shader->set_uniform("enable_ssao", false);
+    shader->set_uniform("z_far", camera.get_far_z());
+    shader->set_uniform("z_near", camera.get_near_z());
     canvas.get_volumes().render(GLVolumeCollection::ERenderType::All, true,
-        camera.get_view_matrix(), camera.get_projection_matrix(), Size(width, height), visible);
+        camera.get_view_matrix(), camera.get_projection_matrix(), Size(width, height), visible, false);
+    shader->stop_using();
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     std::vector<uint8_t> pixels(size_t(width) * size_t(height) * 3);
     glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
@@ -232,7 +244,7 @@ void capture_workspace(const std::string& request_path)
         std::swap_ranges(pixels.begin() + size_t(row) * row_bytes,
             pixels.begin() + size_t(row + 1) * row_bytes,
             pixels.begin() + size_t(height - row - 1) * row_bytes);
-    if (!png::write_rgb_to_file("capture.png", width, height, pixels))
+    if (!png::write_rgb_to_file((boost::filesystem::path(output_directory) / "capture.png").string(), width, height, pixels))
         throw std::runtime_error("Could not write the native capture PNG");
 
     const auto& rotation = camera.get_view_rotation();
@@ -245,7 +257,7 @@ void capture_workspace(const std::string& request_path)
             {"target", vector_json(camera.get_target())}, {"zoom", camera.get_zoom()}, {"margin", margin}}},
         {"bounds_mm", {{"min", vector_json(bounds.min)}, {"max", vector_json(bounds.max)}}},
         {"volumes", volumes}, {"graphics_renderer", reinterpret_cast<const char*>(glGetString(GL_RENDERER))}};
-    boost::nowide::ofstream output("capture.json");
+    boost::nowide::ofstream output((boost::filesystem::path(output_directory) / "capture.json").string());
     output << result.dump(2);
     output.close();
     if (!output)
