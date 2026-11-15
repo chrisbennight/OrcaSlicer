@@ -1,5 +1,6 @@
 #include "libslic3r/libslic3r.h"
 #include "GLCanvas3D.hpp"
+#include "WorkspaceCapture.hpp"
 
 #include <igl/unproject.h>
 
@@ -8062,6 +8063,47 @@ void GLCanvas3D::_render_plane() const
 }
 
 //BBS: add outline drawing logic
+const BoundingBoxf3& GLCanvas3D::workspace_bed_bounding_box() const
+{
+    return m_bed.extended_bounding_box();
+}
+
+void GLCanvas3D::render_workspace_bed()
+{
+    const Camera& camera = wxGetApp().plater()->get_camera();
+    _render_bed(camera.get_view_matrix(), camera.get_projection_matrix(), !camera.is_looking_downward(), false);
+}
+
+void GLCanvas3D::render_workspace_volumes(const std::function<bool(const GLVolume&)>& visible)
+{
+    if (wxGetApp().get_shader("gouraud") == nullptr)
+        throw WorkspaceCaptureUnavailable("Native model shader is unavailable");
+    std::vector<std::pair<bool, bool>> state;
+    state.reserve(m_volumes.volumes.size());
+    for (const GLVolume* volume : m_volumes.volumes)
+        state.emplace_back(volume->is_active, volume->selected);
+    auto all_volumes = m_volumes.volumes;
+    Slic3r::ScopeGuard restore_visibility([&]() {
+        m_volumes.volumes.swap(all_volumes);
+        for (size_t i = 0; i != state.size(); ++i) {
+            m_volumes.volumes[i]->is_active = state[i].first;
+            m_volumes.volumes[i]->selected = state[i].second;
+        }
+    });
+    // Native auxiliary passes also inspect the collection. Restrict the
+    // collection itself so excluded objects cannot leave sinking contours.
+    m_volumes.volumes.erase(std::remove_if(m_volumes.volumes.begin(), m_volumes.volumes.end(),
+        [&](const GLVolume* volume) { return !visible(*volume); }), m_volumes.volumes.end());
+    for (GLVolume* volume : m_volumes.volumes) {
+        volume->is_active = true;
+        volume->selected = false;
+    }
+    m_volumes.set_use_color_clip_plane(false);
+    m_volumes.set_color_clip_plane(Vec3d::Zero(), 0.);
+    _render_objects(GLVolumeCollection::ERenderType::Opaque, false);
+    _render_objects(GLVolumeCollection::ERenderType::Transparent, false);
+}
+
 void GLCanvas3D::_render_objects(GLVolumeCollection::ERenderType type, bool with_outline)
 {
     if (m_volumes.empty())

@@ -933,12 +933,10 @@ void PartPlate::render_exclude_area(bool force_default_color) {
 	// draw exclude area
 	glsafe(::glDepthMask(GL_FALSE));
 
-	if (m_selected) {
-		glsafe(::glColor4fv(select_color.data()));
-	}
-	else {
-		glsafe(::glColor4fv(unselect_color.data()));
-	}
+#if !SLIC3R_OPENGL_ES
+    if (!OpenGLManager::get_gl_info().is_core_profile())
+        glsafe(::glColor4fv((m_selected ? select_color : unselect_color).data()));
+#endif // !SLIC3R_OPENGL_ES
 
 	m_exclude_triangles.set_color(m_selected ? select_color : unselect_color);
     m_exclude_triangles.render();
@@ -1531,7 +1529,7 @@ std::vector<int> PartPlate::get_extruders(bool conside_custom_gcode) const
     glb_support |= glb_config.opt_int("raft_layers") > 0;
 
 	for (int obj_idx = 0; obj_idx < m_model->objects.size(); obj_idx++) {
-		if (!contain_instance_totally(obj_idx, 0))
+		if (!has_fully_contained_instance(obj_idx))
 			continue;
 
 		ModelObject* mo = m_model->objects[obj_idx];
@@ -2204,11 +2202,14 @@ Vec3d PartPlate::estimate_wipe_tower_size(const DynamicPrintConfig & config, con
         return wipe_tower_size;
 
     for (int obj_idx = 0; obj_idx < m_model->objects.size(); obj_idx++) {
-        if (!use_global_objects && !contain_instance_totally(obj_idx, 0))
-            continue;
-
-		BoundingBoxf3 bbox = m_model->objects[obj_idx]->bounding_box_exact();
-        max_height = std::max(bbox.size().z(), max_height);
+        const ModelObject* object = m_model->objects[obj_idx];
+        BoundingBoxf3 bbox;
+        for (size_t instance_idx = 0; instance_idx < object->instances.size(); ++instance_idx) {
+            if (use_global_objects || contain_instance_totally(obj_idx, int(instance_idx)))
+                bbox.merge(object->instance_bounding_box(instance_idx));
+        }
+        if (bbox.defined)
+            max_height = std::max(bbox.size().z(), max_height);
     }
     wipe_tower_size(2) = max_height;
     //const DynamicPrintConfig &dconfig = wxGetApp().preset_bundle->prints.get_edited_preset().config;
@@ -2594,6 +2595,16 @@ bool PartPlate::contain_instance_totally(ModelObject* object, int instance_id) c
 		result = contain_instance_totally(obj_id, instance_id);
 
 	return result;
+}
+
+bool PartPlate::has_fully_contained_instance(int obj_id) const
+{
+    for (auto it = obj_to_instance_set.lower_bound({obj_id, 0});
+         it != obj_to_instance_set.end() && it->first == obj_id; ++it) {
+        if (contain_instance_totally(it->first, it->second))
+            return true;
+    }
+    return false;
 }
 
 //judge whether instance is totally included in plate or not
@@ -3332,7 +3343,25 @@ bool PartPlate::intersects(const BoundingBoxf3& bb) const
 	return print_volume.intersects(bb);
 }
 
-void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_body, bool force_background_color, HeightLimitMode mode, int hover_id, bool render_cali, bool show_grid)
+BoundingBoxf3 PartPlate::get_capture_bounding_box(bool show_surface, bool show_identifiers)
+{
+    BoundingBoxf3 bounds;
+    if (show_surface)
+        bounds.merge(m_bounding_box);
+    if (show_identifiers) {
+        if (!m_plate_idx_icon.is_initialized())
+            calc_vertex_for_number(0, false, m_plate_idx_icon);
+        if (m_plate_name_edit_icon.mesh_raycaster == nullptr)
+            generate_plate_name_texture();
+        if (!m_plate_idx_icon.is_initialized() || !m_plate_name_icon.is_initialized() || m_name_texture.get_id() == 0)
+            throw std::runtime_error("Native plate identifier geometry is unavailable");
+        bounds.merge(m_plate_idx_icon.get_bounding_box());
+        bounds.merge(m_plate_name_icon.get_bounding_box());
+    }
+    return bounds;
+}
+
+void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_body, bool force_background_color, HeightLimitMode mode, int hover_id, bool render_cali, bool show_grid, bool show_identifiers, bool show_surface)
 {
     glsafe(::glEnable(GL_DEPTH_TEST));
 
@@ -3345,7 +3374,7 @@ void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projec
         shader->set_uniform("view_model_matrix", view_matrix);
         shader->set_uniform("projection_matrix", projection_matrix);
 
-        if (!bottom) {
+        if (!bottom && show_surface) {
             // draw background
             render_background(force_background_color);
 
@@ -3380,18 +3409,19 @@ void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projec
         shader->stop_using();
     }
 
-    if (wxGetApp().show_plate_gridlines() && show_grid)
+    if (show_surface && wxGetApp().show_plate_gridlines() && show_grid)
         render_grid(bottom);
 
-    if (!bottom && m_selected && !force_background_color) {
+    if (show_surface && !bottom && m_selected && !force_background_color) {
         if (m_partplate_list)
             render_logo(bottom, m_partplate_list->render_cali_logo && render_cali);
         else
             render_logo(bottom);
     }
 
-    render_icons(bottom, only_body, hover_id);
-    if (!force_background_color) {
+    if (show_identifiers)
+        render_icons(bottom, only_body, hover_id);
+    if (show_identifiers && !force_background_color) {
         render_only_numbers(bottom);
     }
 
@@ -5680,7 +5710,7 @@ void PartPlateList::postprocess_arrange_polygon(arrangement::ArrangePolygon& arr
 
 /*rendering related functions*/
 //render
-void PartPlateList::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current, bool only_body, int hover_id, bool render_cali, bool show_grid)
+void PartPlateList::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current, bool only_body, int hover_id, bool render_cali, bool show_grid, const std::set<int>* visible_plates, bool show_identifiers, bool show_surface, bool show_height_limits)
 {
 	const std::lock_guard<std::mutex> local_lock(m_plates_mutex);
 	std::vector<PartPlate*>::iterator it = m_plate_list.begin();
@@ -5700,20 +5730,22 @@ void PartPlateList::render(const Transform3d& view_matrix, const Transform3d& pr
 		generate_icon_textures();
 	for (it = m_plate_list.begin(); it != m_plate_list.end(); it++) {
 		int current_index = (*it)->get_index();
+		if (visible_plates && visible_plates->count(current_index) == 0)
+			continue;
 		if (only_current && (current_index != m_current_plate))
 			continue;
 		if (current_index == m_current_plate) {
-			PartPlate::HeightLimitMode height_mode = (only_current)?PartPlate::HEIGHT_LIMIT_NONE:m_height_limit_mode;
+			PartPlate::HeightLimitMode height_mode = (only_current || !show_height_limits)?PartPlate::HEIGHT_LIMIT_NONE:m_height_limit_mode;
 			if (plate_hover_index == current_index)
-                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, plate_hover_action, render_cali, show_grid);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, plate_hover_action, render_cali, show_grid, show_identifiers, show_surface);
 			else
-                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, -1, render_cali, show_grid);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, -1, render_cali, show_grid, show_identifiers, show_surface);
 		}
 		else {
 			if (plate_hover_index == current_index)
-				(*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, plate_hover_action, render_cali, show_grid);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, plate_hover_action, render_cali, show_grid, show_identifiers, show_surface);
 			else
-                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, -1, render_cali, show_grid);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, -1, render_cali, show_grid, show_identifiers, show_surface);
 		}
 	}
 }

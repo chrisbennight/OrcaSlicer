@@ -10589,6 +10589,12 @@ CLIActionsConfigDef::CLIActionsConfigDef()
 {
     ConfigOptionDef* def;
 
+    def = this->add("capture_workspace", coString);
+    def->label = L("Capture workspace");
+    def->tooltip = L("Capture the native project layout using a JSON view request, without slicing or saving the project.");
+    def->cli_params = "view-request.json";
+    def->set_default_value(new ConfigOptionString());
+
     // Actions:
     /*def = this->add("export_obj", coBool);
     def->label = L("Export OBJ");

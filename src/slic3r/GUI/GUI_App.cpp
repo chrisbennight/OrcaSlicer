@@ -61,6 +61,7 @@
 #include <wx/dialog.h>
 #include <wx/textctrl.h>
 #include <wx/splash.h>
+#include "WorkspaceCapture.hpp"
 #include <wx/weakref.h>
 #include <wx/fontutil.h>
 #include <wx/glcanvas.h>
@@ -742,6 +743,40 @@ void GUI_App::post_init()
     assert(initialized());
     if (! this->initialized())
         throw Slic3r::RuntimeError("Calling post_init() while not yet initialized");
+
+    if (!init_params->capture_workspace.empty()) {
+        try {
+            if (init_params->capture_requires_interaction)
+                throw Slic3r::RuntimeError("Workspace capture startup requires user interaction");
+            mainframe->select_tab(size_t(MainFrame::tp3DEditor));
+            plater_->select_view_3D("3D");
+            plater_->suppress_background_process(true);
+            const auto loaded = plater_->load_files(init_params->input_files,
+                LoadStrategy::LoadModel | LoadStrategy::LoadConfig | LoadStrategy::Silence, false);
+            if (init_params->capture_requires_interaction)
+                throw Slic3r::RuntimeError("Workspace capture import requires user interaction");
+            if (loaded.empty())
+                throw Slic3r::RuntimeError("Workspace capture could not load the project layout");
+            plater_->suppress_background_process(true);
+            // Layout capture uses the native model-placement representation,
+            // including estimated towers, even when the package contains G-code.
+            plater_->set_using_exported_file(false);
+            plater_->canvas3D()->render(true);
+            if (init_params->capture_requires_interaction)
+                throw Slic3r::RuntimeError("Workspace capture initialization requires user interaction");
+            capture_workspace(init_params->capture_workspace, init_params->capture_output_directory);
+            init_params->capture_exit_code = 0;
+        } catch (const WorkspaceCaptureUnavailable& error) {
+            BOOST_LOG_TRIVIAL(error) << "Workspace capture unavailable: " << error.what();
+            init_params->capture_exit_code = workspace_capture_unavailable_exit_code;
+        } catch (const std::exception& error) {
+            BOOST_LOG_TRIVIAL(error) << "Workspace capture failed: " << error.what();
+            init_params->capture_exit_code = 1;
+        }
+        mainframe->shutdown();
+        ExitMainLoop();
+        return;
+    }
 
 #if wxUSE_WEBVIEW_EDGE
     // Ensure the Microsoft WebView2 runtime is installed before any WebView is
@@ -2902,18 +2937,20 @@ bool GUI_App::on_init_inner()
 
     if (is_editor()) {
 #ifdef __WXMSW__
-        if (app_config->get("associate_3mf") == "true")
-            associate_files(L"3mf");
-        if (app_config->get("associate_stl") == "true")
-            associate_files(L"stl");
-        if (app_config->get("associate_step") == "true") {
-            associate_files(L"step");
-            associate_files(L"stp");
-        }
-        associate_url(L"orcaslicer");
+        if (init_params->capture_workspace.empty()) {
+            if (app_config->get("associate_3mf") == "true")
+                associate_files(L"3mf");
+            if (app_config->get("associate_stl") == "true")
+                associate_files(L"stl");
+            if (app_config->get("associate_step") == "true") {
+                associate_files(L"step");
+                associate_files(L"stp");
+            }
+            associate_url(L"orcaslicer");
 
-        if (app_config->get("associate_gcode") == "true")
-            associate_files(L"gcode");
+            if (app_config->get("associate_gcode") == "true")
+                associate_files(L"gcode");
+        }
 #endif // __WXMSW__
 
         preset_updater = new PresetUpdater();
@@ -3049,7 +3086,8 @@ bool GUI_App::on_init_inner()
             wxMessageBox("Force using legacy bambu networking plugin because debugger is attached! If the app terminates itself immediately, please delete installed plugin and try again!");
         }
     } */
-    copy_network_if_available();
+    if (init_params->capture_workspace.empty())
+        copy_network_if_available();
     on_init_network();
 
     if (m_agent && m_agent->is_user_login()) {
@@ -3349,6 +3387,17 @@ void GUI_App::copy_network_if_available()
 
 bool GUI_App::on_init_network(bool try_backup)
 {
+    if (init_params != nullptr && !init_params->capture_workspace.empty()) {
+        // Native viewport construction needs empty managers, but must never
+        // start cloud agents or access an interactive user's credential store.
+        if (!m_device_manager)
+            m_device_manager = new Slic3r::DeviceManager();
+        if (!m_user_manager)
+            m_user_manager = new Slic3r::UserManager();
+        BOOST_LOG_TRIVIAL(info) << "Workspace capture uses offline GUI initialization";
+        return false;
+    }
+
     // Clean up stale ".old" files left by install_plugin() when it had to rename an in-use
     // DLL aside (see the rename-aside path in install_plugin). This runs before the plug-in
     // is (re)loaded - at startup nothing is mapped yet, and on a hot reload the previous
