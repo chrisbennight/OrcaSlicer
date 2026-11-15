@@ -1,5 +1,6 @@
 #include "libslic3r/libslic3r.h"
 #include "GLCanvas3D.hpp"
+#include "WorkspaceCapture.hpp"
 
 #include <igl/unproject.h>
 
@@ -8062,6 +8063,30 @@ void GLCanvas3D::_render_plane() const
 }
 
 //BBS: add outline drawing logic
+void GLCanvas3D::render_workspace_volumes(const std::function<bool(const GLVolume&)>& visible)
+{
+    if (wxGetApp().get_shader("gouraud") == nullptr)
+        throw WorkspaceCaptureUnavailable("Native model shader is unavailable");
+    std::vector<std::pair<bool, bool>> state;
+    state.reserve(m_volumes.volumes.size());
+    for (const GLVolume* volume : m_volumes.volumes)
+        state.emplace_back(volume->is_active, volume->selected);
+    Slic3r::ScopeGuard restore_visibility([&]() {
+        for (size_t i = 0; i != state.size(); ++i) {
+            m_volumes.volumes[i]->is_active = state[i].first;
+            m_volumes.volumes[i]->selected = state[i].second;
+        }
+    });
+    for (GLVolume* volume : m_volumes.volumes) {
+        volume->is_active = visible(*volume);
+        volume->selected = false;
+    }
+    m_volumes.set_use_color_clip_plane(false);
+    m_volumes.set_color_clip_plane(Vec3d::Zero(), 0.);
+    _render_objects(GLVolumeCollection::ERenderType::Opaque, false);
+    _render_objects(GLVolumeCollection::ERenderType::Transparent, false);
+}
+
 void GLCanvas3D::_render_objects(GLVolumeCollection::ERenderType type, bool with_outline)
 {
     if (m_volumes.empty())

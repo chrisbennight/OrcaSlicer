@@ -760,6 +760,9 @@ void GUI_App::post_init()
             plater_->canvas3D()->render(true);
             capture_workspace(init_params->capture_workspace, init_params->capture_output_directory);
             init_params->capture_exit_code = 0;
+        } catch (const WorkspaceCaptureUnavailable& error) {
+            BOOST_LOG_TRIVIAL(error) << "Workspace capture unavailable: " << error.what();
+            init_params->capture_exit_code = workspace_capture_unavailable_exit_code;
         } catch (const std::exception& error) {
             BOOST_LOG_TRIVIAL(error) << "Workspace capture failed: " << error.what();
             init_params->capture_exit_code = 1;

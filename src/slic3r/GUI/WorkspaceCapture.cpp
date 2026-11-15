@@ -41,6 +41,18 @@ json vector_json(const Vec3d& value)
     return {value.x(), value.y(), value.z()};
 }
 
+json matrix_json(const Transform3d& transform)
+{
+    json matrix = json::array();
+    for (int row = 0; row != 4; ++row) {
+        json values = json::array();
+        for (int column = 0; column != 4; ++column)
+            values.push_back(transform.matrix()(row, column));
+        matrix.push_back(values);
+    }
+    return matrix;
+}
+
 std::set<int> selection(const json& request, const char* key, int count)
 {
     std::set<int> result;
@@ -61,6 +73,8 @@ struct Framebuffer {
 
     Framebuffer()
     {
+        if (OpenGLManager::get_framebuffers_type() != OpenGLManager::EFramebufferType::Arb)
+            throw WorkspaceCaptureUnavailable("Native workspace capture requires core/ARB framebuffer support");
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previous_framebuffer);
         glGetIntegerv(GL_RENDERBUFFER_BINDING, &previous_renderbuffer);
         glGetIntegerv(GL_PACK_ALIGNMENT, &previous_pack_alignment);
@@ -110,7 +124,7 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
     Plater& plater = *wxGetApp().plater();
     GLCanvas3D& canvas = *plater.canvas3D();
     if (!canvas.make_current_for_postinit() || !wxGetApp().init_opengl())
-        throw std::runtime_error("Native capture OpenGL context is unavailable");
+        throw WorkspaceCaptureUnavailable("Native capture OpenGL context is unavailable");
     canvas.reload_scene(true);
 
     GLint max_size = 0;
@@ -151,16 +165,10 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
             continue;
         const auto box = volume->transformed_bounding_box();
         bounds.merge(box);
-        json matrix = json::array();
-        for (int row = 0; row != 4; ++row) {
-            json values = json::array();
-            for (int column = 0; column != 4; ++column)
-                values.push_back(volume->world_matrix().matrix()(row, column));
-            matrix.push_back(values);
-        }
         volumes.push_back({{"object", volume->composite_id.object_id + 1},
             {"instance", volume->composite_id.instance_id + 1},
-            {"prime_tower", volume->is_wipe_tower}, {"world_matrix", matrix},
+            {"prime_tower", volume->is_wipe_tower}, {"world_matrix", matrix_json(volume->world_matrix())},
+            {"material_color", {volume->color.r(), volume->color.g(), volume->color.b(), volume->color.a()}},
             {"bounds_mm", {{"min", vector_json(box.min)}, {"max", vector_json(box.max)}}}});
     }
     if (!bounds.defined)
@@ -205,6 +213,7 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
     if (!std::isfinite(margin) || margin < 1)
         throw std::runtime_error("Automatic capture framing requires a finite margin of at least one");
     camera.zoom_to_box(bounds, margin);
+    camera.set_zoom(camera.get_zoom());
     if (view.contains("target") && !view.at("target").is_null())
         camera.set_target(vector3(view.at("target")));
     if (view.contains("zoom") && !view.at("zoom").is_null()) {
@@ -224,16 +233,7 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
     const bool bottom = camera.get_dir_forward().z() > 0;
     plates.render(camera.get_view_matrix(), camera.get_projection_matrix(), bottom,
         false, true, -1, false, true, &selected_plates, show_identifiers, show_beds);
-    GLShaderProgram* shader = wxGetApp().get_shader("gouraud");
-    if (shader == nullptr)
-        throw std::runtime_error("Native model shader is unavailable");
-    shader->start_using();
-    shader->set_uniform("enable_ssao", false);
-    shader->set_uniform("z_far", camera.get_far_z());
-    shader->set_uniform("z_near", camera.get_near_z());
-    canvas.get_volumes().render(GLVolumeCollection::ERenderType::All, true,
-        camera.get_view_matrix(), camera.get_projection_matrix(), Size(width, height), visible, false);
-    shader->stop_using();
+    canvas.render_workspace_volumes(visible);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     std::vector<uint8_t> pixels(size_t(width) * size_t(height) * 3);
     glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
@@ -256,6 +256,8 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
             {"orientation", {rotation.w(), rotation.x(), rotation.y(), rotation.z()}},
             {"target", vector_json(camera.get_target())}, {"zoom", camera.get_zoom()}, {"margin", margin}}},
         {"bounds_mm", {{"min", vector_json(bounds.min)}, {"max", vector_json(bounds.max)}}},
+        {"view_matrix", matrix_json(camera.get_view_matrix())},
+        {"projection_matrix", matrix_json(camera.get_projection_matrix())},
         {"volumes", volumes}, {"graphics_renderer", reinterpret_cast<const char*>(glGetString(GL_RENDERER))}};
     boost::nowide::ofstream output((boost::filesystem::path(output_directory) / "capture.json").string());
     output << result.dump(2);

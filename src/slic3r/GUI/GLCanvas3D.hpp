@@ -911,6 +911,7 @@ public:
     bool is_dragging() const { return m_gizmos.is_dragging() || m_moving; }
 
     void render(bool only_init = false);
+    void render_workspace_volumes(const std::function<bool(const GLVolume&)>& visible);
     bool is_rendering_enabled()
     {
         return m_enable_render;
