@@ -8071,14 +8071,20 @@ void GLCanvas3D::render_workspace_volumes(const std::function<bool(const GLVolum
     state.reserve(m_volumes.volumes.size());
     for (const GLVolume* volume : m_volumes.volumes)
         state.emplace_back(volume->is_active, volume->selected);
+    auto all_volumes = m_volumes.volumes;
     Slic3r::ScopeGuard restore_visibility([&]() {
+        m_volumes.volumes.swap(all_volumes);
         for (size_t i = 0; i != state.size(); ++i) {
             m_volumes.volumes[i]->is_active = state[i].first;
             m_volumes.volumes[i]->selected = state[i].second;
         }
     });
+    // Native auxiliary passes also inspect the collection. Restrict the
+    // collection itself so excluded objects cannot leave sinking contours.
+    m_volumes.volumes.erase(std::remove_if(m_volumes.volumes.begin(), m_volumes.volumes.end(),
+        [&](const GLVolume* volume) { return !visible(*volume); }), m_volumes.volumes.end());
     for (GLVolume* volume : m_volumes.volumes) {
-        volume->is_active = visible(*volume);
+        volume->is_active = true;
         volume->selected = false;
     }
     m_volumes.set_use_color_clip_plane(false);

@@ -10,6 +10,7 @@
 #include "PartPlate.hpp"
 #include "Plater.hpp"
 #include "libslic3r/PNGReadWrite.hpp"
+#include "libslic3r/Utils.hpp"
 #include "nlohmann/json.hpp"
 
 #include <boost/nowide/fstream.hpp>
@@ -213,7 +214,37 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
     if (!std::isfinite(margin) || margin < 1)
         throw std::runtime_error("Automatic capture framing requires a finite margin of at least one");
     camera.zoom_to_box(bounds, margin);
+    // A deterministic distance keeps perspective framing and resolved-camera
+    // replay independent of the interactive camera left by project loading.
+    const Vec3d center = bounds.center();
+    const double distance = std::max(1000.0, 2.0 * bounds.size().norm());
+    camera.look_at(center - distance * camera.get_dir_forward(), center, camera.get_dir_up());
     camera.set_zoom(camera.get_zoom());
+    const bool custom_target = view.contains("target") && !view.at("target").is_null();
+    const bool custom_zoom = view.contains("zoom") && !view.at("zoom").is_null();
+    if (!custom_target && !custom_zoom) {
+        // The ordinary native fit is planar. Measure all corners through the
+        // actual projection so perspective magnification also fits the margin.
+        camera.apply_projection(bounds);
+        const Eigen::Matrix4d matrix = camera.get_projection_matrix().matrix() * camera.get_view_matrix().matrix();
+        double extent = 0;
+        for (int corner = 0; corner != 8; ++corner) {
+            Eigen::Vector4d point;
+            for (int axis = 0; axis != 3; ++axis)
+                point[axis] = corner & (1 << axis) ? bounds.max[axis] : bounds.min[axis];
+            point[3] = 1;
+            const Eigen::Vector4d projected = matrix * point;
+            if (!projected.allFinite() || projected[3] <= 0)
+                throw std::runtime_error("Native camera cannot frame the layout bounds");
+            extent = std::max(extent, std::max(std::abs(projected[0]), std::abs(projected[1])) / projected[3]);
+        }
+        if (extent * margin > 1.0) {
+            const double fitted_zoom = camera.get_zoom() / (extent * margin);
+            camera.set_zoom(fitted_zoom);
+            if (camera.get_zoom() > fitted_zoom * (1.0 + 1e-9))
+                throw std::runtime_error("Native camera zoom limits cannot fit the requested margin");
+        }
+    }
     if (view.contains("target") && !view.at("target").is_null())
         camera.set_target(vector3(view.at("target")));
     if (view.contains("zoom") && !view.at("zoom").is_null()) {
@@ -244,7 +275,9 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
         std::swap_ranges(pixels.begin() + size_t(row) * row_bytes,
             pixels.begin() + size_t(row + 1) * row_bytes,
             pixels.begin() + size_t(height - row - 1) * row_bytes);
-    if (!png::write_rgb_to_file((boost::filesystem::path(output_directory) / "capture.png").string(), width, height, pixels))
+    const auto image_path = boost::filesystem::path(data_dir()) / "capture.png";
+    const auto metadata_path = boost::filesystem::path(data_dir()) / "capture.json";
+    if (!png::write_rgb_to_file(image_path.string(), width, height, pixels))
         throw std::runtime_error("Could not write the native capture PNG");
 
     const auto& rotation = camera.get_view_rotation();
@@ -259,11 +292,15 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
         {"view_matrix", matrix_json(camera.get_view_matrix())},
         {"projection_matrix", matrix_json(camera.get_projection_matrix())},
         {"volumes", volumes}, {"graphics_renderer", reinterpret_cast<const char*>(glGetString(GL_RENDERER))}};
-    boost::nowide::ofstream output((boost::filesystem::path(output_directory) / "capture.json").string());
+    boost::nowide::ofstream output(metadata_path.string());
     output << result.dump(2);
     output.close();
     if (!output)
         throw std::runtime_error("Could not write native capture metadata");
+    // Exclusive copies enforce preservation even if another process creates an
+    // output after startup validation. Encoding stays in the private data root.
+    boost::filesystem::copy_file(image_path, boost::filesystem::path(output_directory) / "capture.png");
+    boost::filesystem::copy_file(metadata_path, boost::filesystem::path(output_directory) / "capture.json");
 }
 
 }}

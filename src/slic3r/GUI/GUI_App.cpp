@@ -59,6 +59,7 @@
 #include <wx/intl.h>
 
 #include <wx/dialog.h>
+#include <wx/modalhook.h>
 #include <wx/textctrl.h>
 #include <wx/splash.h>
 #include "WorkspaceCapture.hpp"
@@ -746,11 +747,22 @@ void GUI_App::post_init()
 
     if (!init_params->capture_workspace.empty()) {
         try {
+            struct CaptureDialogHook : wxModalDialogHook {
+                bool intercepted { false };
+                int Enter(wxDialog*) override
+                {
+                    intercepted = true;
+                    return wxID_CANCEL;
+                }
+            } dialogs;
+            dialogs.Register();
             mainframe->select_tab(size_t(MainFrame::tp3DEditor));
             plater_->select_view_3D("3D");
             plater_->suppress_background_process(true);
             const auto loaded = plater_->load_files(init_params->input_files,
                 LoadStrategy::LoadModel | LoadStrategy::LoadConfig | LoadStrategy::Silence, false);
+            if (dialogs.intercepted)
+                throw Slic3r::RuntimeError("Workspace capture import requires user interaction");
             if (loaded.empty())
                 throw Slic3r::RuntimeError("Workspace capture could not load the project layout");
             plater_->suppress_background_process(true);
@@ -758,6 +770,8 @@ void GUI_App::post_init()
             // including estimated towers, even when the package contains G-code.
             plater_->set_using_exported_file(false);
             plater_->canvas3D()->render(true);
+            if (dialogs.intercepted)
+                throw Slic3r::RuntimeError("Workspace capture initialization requires user interaction");
             capture_workspace(init_params->capture_workspace, init_params->capture_output_directory);
             init_params->capture_exit_code = 0;
         } catch (const WorkspaceCaptureUnavailable& error) {
