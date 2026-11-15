@@ -24,6 +24,9 @@ struct GUI_InitParams
     std::vector<std::string>    load_configs;
     DynamicPrintConfig          extra_config;
     std::vector<std::string>    input_files;
+    // A data-only native layout observation in a disposable application instance.
+    std::string                capture_workspace;
+    int                        capture_exit_code { 1 };
 
     std::pair<int, int>         opengl_version                  { 0, 0 };
     bool                        opengl_debug                    { false };

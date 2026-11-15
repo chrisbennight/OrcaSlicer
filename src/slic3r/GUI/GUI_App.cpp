@@ -61,6 +61,7 @@
 #include <wx/dialog.h>
 #include <wx/textctrl.h>
 #include <wx/splash.h>
+#include "WorkspaceCapture.hpp"
 #include <wx/weakref.h>
 #include <wx/fontutil.h>
 #include <wx/glcanvas.h>
@@ -742,6 +743,30 @@ void GUI_App::post_init()
     assert(initialized());
     if (! this->initialized())
         throw Slic3r::RuntimeError("Calling post_init() while not yet initialized");
+
+    if (!init_params->capture_workspace.empty()) {
+        try {
+            mainframe->select_tab(size_t(MainFrame::tp3DEditor));
+            plater_->select_view_3D("3D");
+            plater_->suppress_background_process(true);
+            const auto loaded = plater_->load_files(init_params->input_files,
+                LoadStrategy::LoadModel | LoadStrategy::LoadConfig | LoadStrategy::Silence, false);
+            if (loaded.empty())
+                throw Slic3r::RuntimeError("Workspace capture could not load the project layout");
+            plater_->suppress_background_process(true);
+            // Layout capture uses the native model-placement representation,
+            // including estimated towers, even when the package contains G-code.
+            plater_->set_using_exported_file(false);
+            plater_->canvas3D()->render(true);
+            capture_workspace(init_params->capture_workspace);
+            init_params->capture_exit_code = 0;
+        } catch (const std::exception& error) {
+            BOOST_LOG_TRIVIAL(error) << "Workspace capture failed: " << error.what();
+            init_params->capture_exit_code = 1;
+        }
+        ExitMainLoop();
+        return;
+    }
 
 #if wxUSE_WEBVIEW_EDGE
     // Ensure the Microsoft WebView2 runtime is installed before any WebView is

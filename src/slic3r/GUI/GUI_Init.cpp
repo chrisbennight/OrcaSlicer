@@ -1,4 +1,5 @@
 #include "GUI_Init.hpp"
+#include "WorkspaceCaptureRequest.hpp"
 
 #include "libslic3r/AppConfig.hpp"
 
@@ -15,6 +16,7 @@
 
 #include <boost/nowide/iostream.hpp>
 #include <boost/nowide/convert.hpp>
+#include <boost/nowide/fstream.hpp>
 
 #if __APPLE__
     #include <signal.h>
@@ -40,12 +42,16 @@ int GUI_Run(GUI_InitParams &params)
 
     //BBS: remove the try-catch and let exception goto above
     try {
+        if (!params.capture_workspace.empty()) {
+            boost::nowide::ifstream request(params.capture_workspace);
+            validate_workspace_capture_request(nlohmann::json::parse(request));
+        }
         //GUI::GUI_App* gui = new GUI::GUI_App(params.start_as_gcodeviewer ? GUI::GUI_App::EAppMode::GCodeViewer : GUI::GUI_App::EAppMode::Editor);
         GUI::GUI_App* gui = new GUI::GUI_App();
         //if (gui->get_app_mode() != GUI::GUI_App::EAppMode::GCodeViewer) {
             // G-code viewer is currently not performing instance check, a new G-code viewer is started every time.
             bool gui_single_instance_setting = gui->app_config->get("app", "single_instance") == "true";
-            if (Slic3r::instance_check(params.argc, params.argv, gui_single_instance_setting)) {
+            if (params.capture_workspace.empty() && Slic3r::instance_check(params.argc, params.argv, gui_single_instance_setting)) {
                 //TODO: do we have delete gui and other stuff?
                 return -1;
             }
@@ -54,6 +60,17 @@ int GUI_Run(GUI_InitParams &params)
 //      gui->autosave = m_config.opt_string("autosave");
         GUI::GUI_App::SetInstance(gui);
         gui->init_params = &params;
+        if (!params.capture_workspace.empty()) {
+            gui->app_config->set("show_splash_screen", "false");
+            gui->app_config->set("background_processing", "0");
+            gui->app_config->set("installed_networking", "false");
+            gui->app_config->set("update_network_plugin", "false");
+            gui->app_config->set("sync_system_preset", "false");
+            gui->app_config->set("sync_user_preset", "false");
+            gui->app_config->set("stealth_mode", "true");
+            gui->app_config->set("no_warn_when_modified_gcodes", "true");
+            gui->app_config->set("show_hints", "false");
+        }
 
         if (params.argc > 1) {
             // STUDIO-273 wxWidgets report error when opening some files with specific names
@@ -61,15 +78,20 @@ int GUI_Run(GUI_InitParams &params)
             int                 argc = 1;
             std::vector<char *> argv;
             argv.push_back(params.argv[0]);
-            return wxEntry(argc, argv.data());
+            const int result = wxEntry(argc, argv.data());
+            return params.capture_workspace.empty() ? result : params.capture_exit_code;
         } else {
             return wxEntry(params.argc, params.argv);
         }
     } catch (const Slic3r::Exception &ex) {
         BOOST_LOG_TRIVIAL(error) << ex.what() << std::endl;
+        if (!params.capture_workspace.empty())
+            return 1;
         wxMessageBox(boost::nowide::widen(ex.what()), _L("Orca Slicer GUI initialization failed"), wxICON_STOP);
     } catch (const std::exception &ex) {
         BOOST_LOG_TRIVIAL(error) << ex.what() << std::endl;
+        if (!params.capture_workspace.empty())
+            return 1;
         wxMessageBox(format_wxstr(_L("Fatal error, exception caught: %1%"), ex.what()), _L("Orca Slicer GUI initialization failed"), wxICON_STOP);
     }
     // error

@@ -3332,7 +3332,7 @@ bool PartPlate::intersects(const BoundingBoxf3& bb) const
 	return print_volume.intersects(bb);
 }
 
-void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_body, bool force_background_color, HeightLimitMode mode, int hover_id, bool render_cali, bool show_grid)
+void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_body, bool force_background_color, HeightLimitMode mode, int hover_id, bool render_cali, bool show_grid, bool show_identifiers, bool show_surface)
 {
     glsafe(::glEnable(GL_DEPTH_TEST));
 
@@ -3345,7 +3345,7 @@ void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projec
         shader->set_uniform("view_model_matrix", view_matrix);
         shader->set_uniform("projection_matrix", projection_matrix);
 
-        if (!bottom) {
+        if (!bottom && show_surface) {
             // draw background
             render_background(force_background_color);
 
@@ -3380,18 +3380,19 @@ void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projec
         shader->stop_using();
     }
 
-    if (wxGetApp().show_plate_gridlines() && show_grid)
+    if (show_surface && wxGetApp().show_plate_gridlines() && show_grid)
         render_grid(bottom);
 
-    if (!bottom && m_selected && !force_background_color) {
+    if (show_surface && !bottom && m_selected && !force_background_color) {
         if (m_partplate_list)
             render_logo(bottom, m_partplate_list->render_cali_logo && render_cali);
         else
             render_logo(bottom);
     }
 
-    render_icons(bottom, only_body, hover_id);
-    if (!force_background_color) {
+    if (show_identifiers)
+        render_icons(bottom, only_body, hover_id);
+    if (show_identifiers && !force_background_color) {
         render_only_numbers(bottom);
     }
 
@@ -5680,7 +5681,7 @@ void PartPlateList::postprocess_arrange_polygon(arrangement::ArrangePolygon& arr
 
 /*rendering related functions*/
 //render
-void PartPlateList::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current, bool only_body, int hover_id, bool render_cali, bool show_grid)
+void PartPlateList::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current, bool only_body, int hover_id, bool render_cali, bool show_grid, const std::set<int>* visible_plates, bool show_identifiers, bool show_surface)
 {
 	const std::lock_guard<std::mutex> local_lock(m_plates_mutex);
 	std::vector<PartPlate*>::iterator it = m_plate_list.begin();
@@ -5700,20 +5701,22 @@ void PartPlateList::render(const Transform3d& view_matrix, const Transform3d& pr
 		generate_icon_textures();
 	for (it = m_plate_list.begin(); it != m_plate_list.end(); it++) {
 		int current_index = (*it)->get_index();
+		if (visible_plates && visible_plates->count(current_index) == 0)
+			continue;
 		if (only_current && (current_index != m_current_plate))
 			continue;
 		if (current_index == m_current_plate) {
 			PartPlate::HeightLimitMode height_mode = (only_current)?PartPlate::HEIGHT_LIMIT_NONE:m_height_limit_mode;
 			if (plate_hover_index == current_index)
-                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, plate_hover_action, render_cali, show_grid);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, plate_hover_action, render_cali, show_grid, show_identifiers, show_surface);
 			else
-                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, -1, render_cali, show_grid);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, -1, render_cali, show_grid, show_identifiers, show_surface);
 		}
 		else {
 			if (plate_hover_index == current_index)
-				(*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, plate_hover_action, render_cali, show_grid);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, plate_hover_action, render_cali, show_grid, show_identifiers, show_surface);
 			else
-                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, -1, render_cali, show_grid);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, -1, render_cali, show_grid, show_identifiers, show_surface);
 		}
 	}
 }
