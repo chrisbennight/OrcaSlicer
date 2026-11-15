@@ -134,6 +134,10 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
     GLCanvas3D& canvas = *plater.canvas3D();
     if (!canvas.make_current_for_postinit() || !wxGetApp().init_opengl())
         throw WorkspaceCaptureUnavailable("Native capture OpenGL context is unavailable");
+    PartPlateList& plates = plater.get_partplate_list();
+    // Import can resize beds after the initial instance assignment. Rebuild
+    // membership against the resolved printer without moving any instances.
+    plates.reload_all_objects();
     canvas.reload_scene(true);
 
     GLint max_size = 0;
@@ -141,7 +145,6 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
     if (width > max_size || height > max_size)
         throw std::runtime_error("Native capture dimensions exceed the graphics backend's renderbuffer size");
 
-    PartPlateList& plates = plater.get_partplate_list();
     auto selected_plates = selection(request, "plates", plates.get_plate_count());
     const auto selected_objects = selection(request, "objects", int(plater.model().objects.size()));
     if (selected_plates.empty())
