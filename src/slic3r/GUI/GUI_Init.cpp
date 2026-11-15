@@ -13,6 +13,7 @@
 
 // To show a message box if GUI initialization ends up with an exception thrown.
 #include <wx/msgdlg.h>
+#include <wx/modalhook.h>
 
 #include <boost/nowide/iostream.hpp>
 #include <boost/nowide/convert.hpp>
@@ -54,6 +55,17 @@ int GUI_Run(GUI_InitParams &params)
                 BOOST_LOG_TRIVIAL(error) << "Could not remove disposable capture configuration: " << error.message();
         }
     });
+    struct CaptureDialogHook : wxModalDialogHook {
+        GUI_InitParams& params;
+        explicit CaptureDialogHook(GUI_InitParams& value) : params(value) {}
+        int Enter(wxDialog*) override
+        {
+            params.capture_requires_interaction = true;
+            return wxID_CANCEL;
+        }
+    } dialogs(params);
+    if (!params.capture_workspace.empty())
+        dialogs.Register();
     try {
         if (!params.capture_workspace.empty()) {
             params.capture_workspace = boost::filesystem::canonical(params.capture_workspace).string();

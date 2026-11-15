@@ -28,6 +28,7 @@ struct GUI_InitParams
     std::string                capture_workspace;
     std::string                capture_output_directory;
     int                        capture_exit_code { 1 };
+    bool                       capture_requires_interaction { false };
 
     std::pair<int, int>         opengl_version                  { 0, 0 };
     bool                        opengl_debug                    { false };

@@ -411,6 +411,7 @@ public:
     void set_unselected();
     void set_hover_id(int id) { m_hover_id = id; }
     const BoundingBoxf3& get_bounding_box(bool extended = false) { return extended ? m_extended_bounding_box : m_bounding_box; }
+    BoundingBoxf3 get_capture_bounding_box(bool show_surface, bool show_identifiers);
     const BoundingBox get_bounding_box_crd();
     BoundingBoxf3 get_plate_box() {return get_build_volume();}
     BoundingBoxf3 get_build_volume(bool use_share = false);
@@ -835,7 +836,7 @@ public:
 
     /*rendering related functions*/
     void on_change_color_mode(bool is_dark) { m_is_dark = is_dark; }
-    void render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current = false, bool only_body = false, int hover_id = -1, bool render_cali = false, bool show_grid = true, const std::set<int>* visible_plates = nullptr, bool show_identifiers = true, bool show_surface = true);
+    void render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current = false, bool only_body = false, int hover_id = -1, bool render_cali = false, bool show_grid = true, const std::set<int>* visible_plates = nullptr, bool show_identifiers = true, bool show_surface = true, bool show_height_limits = true);
     void set_render_option(bool bedtype_texture, bool plate_settings);
     void set_render_cali(bool value = true) { render_cali_logo = value; }
     void register_raycasters_for_picking(GLCanvas3D& canvas)

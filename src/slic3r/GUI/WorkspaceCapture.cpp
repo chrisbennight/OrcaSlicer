@@ -159,7 +159,7 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
     for (int index : selected_plates) {
         plate_ids.push_back(index + 1);
         if (show_beds || show_identifiers)
-            bounds.merge(plates.get_plate(index)->get_bounding_box(true));
+            bounds.merge(plates.get_plate(index)->get_capture_bounding_box(show_beds, show_identifiers));
     }
     for (const GLVolume* volume : canvas.get_volumes().volumes) {
         if (!visible(*volume))
@@ -263,7 +263,7 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
     glEnable(GL_DEPTH_TEST);
     const bool bottom = camera.get_dir_forward().z() > 0;
     plates.render(camera.get_view_matrix(), camera.get_projection_matrix(), bottom,
-        false, true, -1, false, true, &selected_plates, show_identifiers, show_beds);
+        false, true, -1, false, true, &selected_plates, show_identifiers, show_beds, false);
     canvas.render_workspace_volumes(visible);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     std::vector<uint8_t> pixels(size_t(width) * size_t(height) * 3);
