@@ -45,6 +45,7 @@ int GUI_Run(GUI_InitParams &params)
     boost::filesystem::path capture_data;
     Slic3r::ScopeGuard cleanup_capture_data([&]() {
         if (!capture_data.empty()) {
+            Slic3r::close_log_file();
             boost::system::error_code error;
             boost::filesystem::current_path(params.capture_output_directory, error);
             if (error)

@@ -252,6 +252,8 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
         if (!std::isfinite(zoom) || zoom <= 0)
             throw std::runtime_error("Camera zoom must be finite and positive");
         camera.set_zoom(zoom);
+        if (std::abs(camera.get_zoom() - zoom) > 1e-9 * std::max(1.0, zoom))
+            throw std::runtime_error("Requested native camera zoom exceeds the layout's supported range");
     }
     camera.apply_viewport();
     camera.apply_projection(bounds);
