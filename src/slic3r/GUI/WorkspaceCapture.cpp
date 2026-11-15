@@ -163,6 +163,13 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
     };
 
     BoundingBoxf3 bounds;
+    const bool show_current_bed = show_beds && selected_plates.count(plates.get_curr_plate_index()) != 0;
+    if (show_current_bed) {
+        // Native bed meshes load lazily during rendering. Initialize the mesh
+        // before fitting the camera to its full bounds.
+        canvas.render_workspace_bed();
+        bounds.merge(canvas.workspace_bed_bounding_box());
+    }
     json plate_ids = json::array(), volumes = json::array();
     for (int index : selected_plates) {
         plate_ids.push_back(index + 1);
@@ -277,6 +284,8 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
     const bool bottom = camera.get_dir_forward().z() > 0;
+    if (show_current_bed)
+        canvas.render_workspace_bed();
     plates.render(camera.get_view_matrix(), camera.get_projection_matrix(), bottom,
         false, true, -1, false, true, &selected_plates, show_identifiers, show_beds, false);
     check_gl_error("plate rendering");

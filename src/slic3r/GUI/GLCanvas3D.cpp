@@ -8063,6 +8063,17 @@ void GLCanvas3D::_render_plane() const
 }
 
 //BBS: add outline drawing logic
+const BoundingBoxf3& GLCanvas3D::workspace_bed_bounding_box() const
+{
+    return m_bed.extended_bounding_box();
+}
+
+void GLCanvas3D::render_workspace_bed()
+{
+    const Camera& camera = wxGetApp().plater()->get_camera();
+    _render_bed(camera.get_view_matrix(), camera.get_projection_matrix(), !camera.is_looking_downward(), false);
+}
+
 void GLCanvas3D::render_workspace_volumes(const std::function<bool(const GLVolume&)>& visible)
 {
     if (wxGetApp().get_shader("gouraud") == nullptr)
