@@ -2202,11 +2202,14 @@ Vec3d PartPlate::estimate_wipe_tower_size(const DynamicPrintConfig & config, con
         return wipe_tower_size;
 
     for (int obj_idx = 0; obj_idx < m_model->objects.size(); obj_idx++) {
-        if (!use_global_objects && !has_fully_contained_instance(obj_idx))
-            continue;
-
-		BoundingBoxf3 bbox = m_model->objects[obj_idx]->bounding_box_exact();
-        max_height = std::max(bbox.size().z(), max_height);
+        const ModelObject* object = m_model->objects[obj_idx];
+        BoundingBoxf3 bbox;
+        for (size_t instance_idx = 0; instance_idx < object->instances.size(); ++instance_idx) {
+            if (use_global_objects || contain_instance_totally(obj_idx, int(instance_idx)))
+                bbox.merge(object->instance_bounding_box(instance_idx));
+        }
+        if (bbox.defined)
+            max_height = std::max(bbox.size().z(), max_height);
     }
     wipe_tower_size(2) = max_height;
     //const DynamicPrintConfig &dconfig = wxGetApp().preset_bundle->prints.get_edited_preset().config;
