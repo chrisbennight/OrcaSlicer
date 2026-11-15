@@ -100,6 +100,7 @@ int GUI_Run(GUI_InitParams &params)
             boost::filesystem::permissions(capture_data, boost::filesystem::owner_all);
             // Never load or change an interactive user's application profile.
             Slic3r::set_data_dir(capture_data.string());
+            Slic3r::set_temporary_dir(capture_data.string());
         }
         //GUI::GUI_App* gui = new GUI::GUI_App(params.start_as_gcodeviewer ? GUI::GUI_App::EAppMode::GCodeViewer : GUI::GUI_App::EAppMode::Editor);
         GUI::GUI_App* gui = new GUI::GUI_App();
