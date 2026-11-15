@@ -2936,18 +2936,20 @@ bool GUI_App::on_init_inner()
 
     if (is_editor()) {
 #ifdef __WXMSW__
-        if (app_config->get("associate_3mf") == "true")
-            associate_files(L"3mf");
-        if (app_config->get("associate_stl") == "true")
-            associate_files(L"stl");
-        if (app_config->get("associate_step") == "true") {
-            associate_files(L"step");
-            associate_files(L"stp");
-        }
-        associate_url(L"orcaslicer");
+        if (init_params->capture_workspace.empty()) {
+            if (app_config->get("associate_3mf") == "true")
+                associate_files(L"3mf");
+            if (app_config->get("associate_stl") == "true")
+                associate_files(L"stl");
+            if (app_config->get("associate_step") == "true") {
+                associate_files(L"step");
+                associate_files(L"stp");
+            }
+            associate_url(L"orcaslicer");
 
-        if (app_config->get("associate_gcode") == "true")
-            associate_files(L"gcode");
+            if (app_config->get("associate_gcode") == "true")
+                associate_files(L"gcode");
+        }
 #endif // __WXMSW__
 
         preset_updater = new PresetUpdater();
