@@ -122,10 +122,15 @@ def with_second_plate(project, destination):
                     data = original.read(name)
                 if name.endswith(".rels"):
                     relationships = ET.fromstring(data)
+                    changed = False
                     for relationship in list(relationships):
                         if relationship.get("Target", "").endswith(".gcode"):
                             relationships.remove(relationship)
-                    data = ET.tostring(relationships, encoding="utf-8", xml_declaration=True)
+                            changed = True
+                    if changed:
+                        if relationships.tag.startswith("{"):
+                            ET.register_namespace("", relationships.tag[1:].split("}")[0])
+                        data = ET.tostring(relationships, encoding="utf-8", xml_declaration=True)
                 staged.writestr(name, data)
     return first_bed_end, second_bed_start
 

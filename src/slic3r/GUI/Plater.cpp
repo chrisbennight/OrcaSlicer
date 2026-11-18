@@ -10199,6 +10199,8 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
 
     //BBS: translate old 3mf to correct positions
     if (translate_old) {
+        if (workspace_capture)
+            partplate_list.reload_all_objects(false, -1, true);
         //translate the objects
         int plate_count = partplate_list.get_plate_count();
         for (int index = 1; index < plate_count; index ++) {
