@@ -3678,9 +3678,14 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
                     Vec3d clamped_pos, clamped_size;
                     WipeTowerRelocation relocation;
                     part_plate->estimate_wipe_tower_polygon(full_config, plate_id, clamped_pos, clamped_size, 0, false, &relocation);
-                    if (std::abs(x - (float) clamped_pos(0)) > EPSILON || std::abs(y - (float) clamped_pos(1)) > EPSILON) {
+                    const bool relocated = std::abs(x - (float) clamped_pos(0)) > EPSILON || std::abs(y - (float) clamped_pos(1)) > EPSILON;
+                    if (relocated) {
                         x = (float) clamped_pos(0);
                         y = (float) clamped_pos(1);
+                    }
+                    // Early capture refreshes must not change the coordinates
+                    // used to estimate the tower after restoring saved plates.
+                    if (relocated && !wxGetApp().is_workspace_capture()) {
                         ConfigOptionFloat wt_x_opt(x), wt_y_opt(y);
                         dynamic_cast<ConfigOptionFloats*>(proj_cfg.option("wipe_tower_x"))->set_at(&wt_x_opt, plate_id, 0);
                         dynamic_cast<ConfigOptionFloats*>(proj_cfg.option("wipe_tower_y"))->set_at(&wt_y_opt, plate_id, 0);
