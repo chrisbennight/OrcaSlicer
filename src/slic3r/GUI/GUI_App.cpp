@@ -944,10 +944,12 @@ void GUI_App::post_init()
         try {
             if (init_params->capture_requires_interaction)
                 throw Slic3r::RuntimeError("Workspace capture startup requires user interaction");
-            mainframe->select_tab(size_t(MainFrame::tp3DEditor));
+            mainframe->select_prepare_for_gl_init();
             plater_->select_view_3D("3D");
             plater_->suppress_background_process(true);
-            const auto loaded = plater_->load_files(init_params->input_files,
+            const std::vector<boost::filesystem::path> input_files(
+                init_params->input_files.begin(), init_params->input_files.end());
+            const auto loaded = plater_->load_files(input_files,
                 LoadStrategy::LoadModel | LoadStrategy::LoadConfig | LoadStrategy::Silence, false);
             if (init_params->capture_requires_interaction)
                 throw Slic3r::RuntimeError("Workspace capture import requires user interaction");
@@ -3376,7 +3378,7 @@ bool GUI_App::on_init_inner()
 //    wxSystemOptions::SetOption("msw.notebook.themed-background", 0);
 
 //     Slic3r::debugf "wxWidgets version %s, Wx version %s\n", wxVERSION_STRING, wxVERSION;
-    if (is_editor()) {
+    if (is_editor() && init_params->capture_workspace.empty()) {
         std::string msg = Slic3r::Http::tls_global_init();
         std::string ssl_cert_store = app_config->get("tls_accepted_cert_store_location");
         bool ssl_accept = app_config->get("tls_cert_store_accepted") == "yes" && ssl_cert_store == Slic3r::Http::tls_system_cert_store();
@@ -3799,7 +3801,9 @@ bool GUI_App::on_init_inner()
     plater_->get_camera().select_view("topfront");
     plater_->get_camera().requires_zoom_to_bed = true;
     if (is_editor()) {
-        if (starts_on_prepare()) {
+        if (!init_params->capture_workspace.empty()) {
+            mainframe->select_prepare_for_gl_init();
+        } else if (starts_on_prepare()) {
             mainframe->select_tab(TAB_ID_PREPARE);
         } else {
             mainframe->select_tab(TAB_ID_HOME);

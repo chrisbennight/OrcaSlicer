@@ -1483,7 +1483,7 @@ int CLI::run(int argc, char **argv)
 
     const bool capture_workspace = m_actions.size() == 1 && m_actions.front() == "capture_workspace";
     if (std::find(m_actions.begin(), m_actions.end(), "capture_workspace") != m_actions.end() &&
-        (!capture_workspace || m_config.opt_string("capture_workspace").empty())) {
+        (!capture_workspace || downward_check || m_config.opt_string("capture_workspace").empty())) {
         BOOST_LOG_TRIVIAL(error) << "Workspace capture requires a nonempty request file and cannot be combined with other actions";
         return 1;
     }
@@ -1507,7 +1507,8 @@ int CLI::run(int argc, char **argv)
         }
     #endif // some linux / unix system
     #if defined(__WXGTK__) && defined(__linux__)
-        apply_discrete_gpu_preference();
+        if (!capture_workspace)
+            apply_discrete_gpu_preference();
     #endif
         Slic3r::GUI::GUI_InitParams params;
         params.argc = argc;

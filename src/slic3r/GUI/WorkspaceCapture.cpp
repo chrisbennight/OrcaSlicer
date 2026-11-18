@@ -3,10 +3,12 @@
 #include "WorkspaceCapture.hpp"
 #include "WorkspaceCaptureRequest.hpp"
 
+#include "BuildCommit.hpp"
 #include "Camera.hpp"
 #include "GLCanvas3D.hpp"
 #include "GUI_App.hpp"
 #include "GUI_Init.hpp"
+#include "OpenGLManager.hpp"
 #include "PartPlate.hpp"
 #include "Plater.hpp"
 #include "libslic3r/PNGReadWrite.hpp"
@@ -15,6 +17,7 @@
 
 #include <boost/nowide/fstream.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/log/trivial.hpp>
 #include <cmath>
 #include <limits>
 #include <set>
@@ -311,7 +314,7 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
     const auto& rotation = camera.get_view_rotation();
     json result = {{"format_version", 1}, {"kind", "native_orca_layout"},
         {"representation", "model_placement"}, {"prime_towers", "native_estimated"},
-        {"engine", {{"name", "OrcaSlicer"}, {"version", SoftFever_VERSION}, {"source_revision", GIT_COMMIT_HASH}}},
+        {"engine", {{"name", "OrcaSlicer"}, {"version", SoftFever_VERSION}, {"source_revision", build_commit_hash}}},
         {"width", width}, {"height", height}, {"plates", plate_ids}, {"objects", request.at("objects")},
         {"visibility", visibility}, {"camera", {{"preset", preset}, {"projection", projection},
             {"orientation", {rotation.w(), rotation.x(), rotation.y(), rotation.z()}},
@@ -327,8 +330,17 @@ void capture_workspace(const std::string& request_path, const std::string& outpu
         throw std::runtime_error("Could not write native capture metadata");
     // Exclusive copies enforce preservation even if another process creates an
     // output after startup validation. Encoding stays in the private data root.
-    boost::filesystem::copy_file(image_path, boost::filesystem::path(output_directory) / "capture.png");
-    boost::filesystem::copy_file(metadata_path, boost::filesystem::path(output_directory) / "capture.json");
+    const auto published_image = boost::filesystem::path(output_directory) / "capture.png";
+    boost::filesystem::copy_file(image_path, published_image);
+    try {
+        boost::filesystem::copy_file(metadata_path, boost::filesystem::path(output_directory) / "capture.json");
+    } catch (...) {
+        boost::system::error_code error;
+        boost::filesystem::remove(published_image, error);
+        if (error)
+            BOOST_LOG_TRIVIAL(error) << "Could not remove incomplete workspace capture: " << error.message();
+        throw;
+    }
 }
 
 }}

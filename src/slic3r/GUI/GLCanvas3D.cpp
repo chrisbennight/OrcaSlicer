@@ -9687,11 +9687,11 @@ void GLCanvas3D::render_workspace_volumes(const std::function<bool(const GLVolum
     }
     m_volumes.set_use_color_clip_plane(false);
     m_volumes.set_color_clip_plane(Vec3d::Zero(), 0.);
-    _render_objects(GLVolumeCollection::ERenderType::Opaque, false);
-    _render_objects(GLVolumeCollection::ERenderType::Transparent, false);
+    _render_objects(GLVolumeCollection::ERenderType::Opaque, false, false);
+    _render_objects(GLVolumeCollection::ERenderType::Transparent, false, false);
 }
 
-void GLCanvas3D::_render_objects(GLVolumeCollection::ERenderType type, bool with_outline)
+void GLCanvas3D::_render_objects(GLVolumeCollection::ERenderType type, bool with_outline, bool with_imex_ghosts)
 {
     if (m_volumes.empty())
         return;
@@ -9755,7 +9755,7 @@ void GLCanvas3D::_render_objects(GLVolumeCollection::ERenderType type, bool with
     if (_is_xray_view_active()) {
         if (type == GLVolumeCollection::ERenderType::Opaque)
             _render_xray_volumes();
-        else
+        else if (with_imex_ghosts)
             _render_imex_ghosts_xray();
         m_camera_clipping_plane = ClippingPlane::ClipsNothing();
         return;
@@ -9887,7 +9887,8 @@ void GLCanvas3D::_render_objects(GLVolumeCollection::ERenderType type, bool with
                 partly_inside_enable, printable_heights);
             // IMEX ghosts are transparent and share the same shader/camera state;
             // render them right after the main transparent pass while the shader is still bound.
-            _render_imex_ghosts();
+            if (with_imex_ghosts)
+                _render_imex_ghosts();
             break;
         }
         }
