@@ -1,5 +1,6 @@
 """Render and replay a synthetic sliced project using the packaged CLI."""
 
+from copy import deepcopy
 import hashlib
 from io import BytesIO
 import json
@@ -10,8 +11,14 @@ import struct
 import subprocess
 import sys
 import tempfile
+import uuid
+import xml.etree.ElementTree as ET
+import zipfile
 
 from PIL import Image
+
+CORE = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+PRODUCTION = "http://schemas.microsoft.com/3dmanufacturing/production/2015/06"
 
 
 def cube(path):
@@ -68,8 +75,53 @@ def create_project(app, stage, profiles):
     run(app, stage, "--slice", "1", "--arrange", "1", "--orient", "0",
         "--curr-bed-type", "Textured PEI Plate", "--export-3mf", "layout.3mf",
         "--outputdir", str(stage), "--load-settings", ";".join(resolved[:2]),
-        "--load-filaments", resolved[2], str(source))
+        "--load-filaments", ";".join([resolved[2], resolved[2]]), str(source))
     return stage / "layout.3mf"
+
+
+def with_second_plate(project, destination):
+    """Use the sliced model on a second plate with an explicit bed type."""
+    model_path = "3D/3dmodel.model"
+    settings_path = "Metadata/model_settings.config"
+    ET.register_namespace("", CORE)
+    ET.register_namespace("p", PRODUCTION)
+    with zipfile.ZipFile(project) as original:
+        config = json.loads(original.read("Metadata/project_settings.config"))
+        model = ET.fromstring(original.read(model_path))
+        settings = ET.fromstring(original.read(settings_path))
+        build = model.find(f"{{{CORE}}}build")
+        item = deepcopy(build.find(f"{{{CORE}}}item"))
+        x_positions = [float(point.split("x")[0]) for point in config["printable_area"]]
+        transform = [float(value) for value in item.get("transform").split()]
+        transform[9] += 1.2 * (max(x_positions) - min(x_positions))
+        item.set("transform", " ".join(map(str, transform)))
+        item.set(f"{{{PRODUCTION}}}UUID", str(uuid.uuid5(uuid.NAMESPACE_URL, "capture-smoke-plate-two")))
+        build.append(item)
+        for plate in settings.findall("plate"):
+            settings.remove(plate)
+        for index, bed_type in enumerate(("Textured PEI Plate", "High Temp Plate")):
+            plate = ET.SubElement(settings, "plate")
+            ET.SubElement(plate, "metadata", key="plater_id", value=str(index + 1))
+            ET.SubElement(plate, "metadata", key="bed_type", value=bed_type)
+            instance = ET.SubElement(plate, "model_instance")
+            ET.SubElement(instance, "metadata", key="object_id", value=item.get("objectid"))
+            ET.SubElement(instance, "metadata", key="instance_id", value=str(index))
+        updated = {model_path: ET.tostring(model, encoding="utf-8", xml_declaration=True),
+                   settings_path: ET.tostring(settings, encoding="utf-8", xml_declaration=True)}
+        with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as staged:
+            for name in original.namelist():
+                if name.endswith(".gcode") or name == "Metadata/slice_info.config":
+                    continue
+                data = updated.get(name)
+                if data is None:
+                    data = original.read(name)
+                if name.endswith(".rels"):
+                    relationships = ET.fromstring(data)
+                    for relationship in list(relationships):
+                        if relationship.get("Target", "").endswith(".gcode"):
+                            relationships.remove(relationship)
+                    data = ET.tostring(relationships, encoding="utf-8", xml_declaration=True)
+                staged.writestr(name, data)
 
 
 def capture(app, stage, project, request):
@@ -84,7 +136,7 @@ def capture(app, stage, project, request):
         assert rendered.size == (request["width"], request["height"])
         assert any(low != high for low, high in rendered.convert("RGB").getextrema()), "capture is blank"
     assert metadata["kind"] == "native_orca_layout"
-    assert metadata["plates"] == [1] and metadata["objects"] == [1]
+    assert metadata["plates"] == request["plates"] and metadata["objects"] == request["objects"]
     assert any(not volume["prime_tower"] for volume in metadata["volumes"]), "model is missing"
     return metadata, hashlib.sha256(image).hexdigest()
 
@@ -108,6 +160,14 @@ def main(app):
                    for left, right in zip(first_row, replay_row, strict=True))
         assert image == replay_image, "camera replay changed the rendered image"
         assert hashlib.sha256(project.read_bytes()).hexdigest() == original, "source was modified"
+        multi_plate = root / "multi-plate.3mf"
+        with_second_plate(project, multi_plate)
+        original_multi = hashlib.sha256(multi_plate.read_bytes()).hexdigest()
+        second_plate, _ = capture(app, root / "second-plate", multi_plate, {**request, "plates": [2]})
+        drawn = {(volume["object"], volume["instance"]) for volume in second_plate["volumes"]
+                 if not volume["prime_tower"]}
+        assert drawn == {(1, 2)}, "capture did not retain the selected plate's placement"
+        assert hashlib.sha256(multi_plate.read_bytes()).hexdigest() == original_multi
         print("Verified native software-rendered workspace capture and camera replay", flush=True)
 
 

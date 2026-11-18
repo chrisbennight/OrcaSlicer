@@ -15719,7 +15719,8 @@ void Plater::render_project_state_debug_window() const { p->render_project_state
 
 void Plater::normalize_bed_types(bool multi_bed_changed)
 {
-    if (only_gcode_mode() || is_gcode_3mf())
+    // A layout observation preserves the source's per-plate settings.
+    if (wxGetApp().is_workspace_capture() || only_gcode_mode() || is_gcode_3mf())
         return;
 
     auto &preset_bundle = *wxGetApp().preset_bundle;
