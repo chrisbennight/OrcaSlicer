@@ -2,6 +2,7 @@
 
 #include "nlohmann/json.hpp"
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <set>
 #include <stdexcept>
@@ -22,6 +23,9 @@ inline void validate_workspace_capture_request(const nlohmann::json& request)
     if (!request.is_object() || request.at("format_version") != 1 ||
         !positive_index(request.at("width")) || !positive_index(request.at("height")))
         fail("Native capture requires supported version and positive representable dimensions");
+    constexpr std::uint64_t max_pixels = 16 * 1024 * 1024;
+    if (request.at("width").get<std::uint64_t>() * request.at("height").get<std::uint64_t>() > max_pixels)
+        fail("Native capture exceeds the total pixel limit");
     for (const char* key : {"plates", "objects"}) {
         const auto& values = request.at(key);
         if (!values.is_array())

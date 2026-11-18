@@ -96,8 +96,12 @@ int GUI_Run(GUI_InitParams &params)
             for (const char* name : {"capture.png", "capture.json"})
                 if (boost::filesystem::exists(boost::filesystem::path(params.capture_output_directory) / name))
                     throw std::runtime_error("Workspace capture output already exists; use a fresh output directory");
-            for (auto& source : params.input_files)
-                source = boost::filesystem::canonical(source).string();
+            for (auto& source : params.input_files) {
+                const auto path = boost::filesystem::absolute(source);
+                if (!boost::filesystem::is_regular_file(path))
+                    throw std::runtime_error("Workspace capture requires a readable project file");
+                source = path.string();
+            }
             const auto directory = boost::filesystem::temp_directory_path() /
                 boost::filesystem::unique_path("orca-capture-%%%%-%%%%-%%%%-%%%%");
             if (!boost::filesystem::create_directory(directory))

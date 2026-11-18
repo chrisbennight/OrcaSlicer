@@ -33,6 +33,7 @@ int main()
     rejects([](json& value) { value["width"] = 0; });
     rejects([](json& value) { value["width"] = 1.5; });
     rejects([](json& value) { value["height"] = 4294967297ULL; });
+    rejects([](json& value) { value["width"] = 8192; value["height"] = 8192; });
     rejects([](json& value) { value["plates"] = {1, 1}; });
     rejects([](json& value) { value["objects"] = {-1}; });
     rejects([](json& value) { value["visibility"]["beds"] = "false"; });

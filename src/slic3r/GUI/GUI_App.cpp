@@ -1278,6 +1278,11 @@ void GUI_App::post_init()
 #endif //WIN32
 }
 
+bool GUI_App::is_workspace_capture() const
+{
+    return init_params != nullptr && !init_params->capture_workspace.empty();
+}
+
 wxDEFINE_EVENT(EVT_ENTER_FORCE_UPGRADE, wxCommandEvent);
 wxDEFINE_EVENT(EVT_SHOW_NO_NEW_VERSION, wxCommandEvent);
 wxDEFINE_EVENT(EVT_SHOW_DIALOG, wxCommandEvent);
@@ -3872,7 +3877,8 @@ bool GUI_App::on_init_inner()
     update_mode(); // update view mode after fix of the object_list size
 
 #ifdef __APPLE__
-   other_instance_message_handler()->bring_instance_forward();
+    if (!is_workspace_capture())
+        other_instance_message_handler()->bring_instance_forward();
 #endif //__APPLE__
 
     Bind(EVT_HTTP_ERROR, &GUI_App::on_http_error, this);
@@ -3917,7 +3923,8 @@ bool GUI_App::on_init_inner()
 //#endif
             m_post_initialized = true;
 #ifdef WIN32
-            this->mainframe->register_win32_callbacks();
+            if (!is_workspace_capture())
+                this->mainframe->register_win32_callbacks();
 #endif
             this->post_init();
 

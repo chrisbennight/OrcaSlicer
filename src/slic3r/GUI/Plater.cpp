@@ -8404,7 +8404,8 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
     this->q->Bind(EVT_INSTANCE_GO_TO_FRONT, [this](InstanceGoToFrontEvent &) {
         bring_instance_forward();
     });
-    wxGetApp().other_instance_message_handler()->init(this->q);
+    if (!wxGetApp().is_workspace_capture())
+        wxGetApp().other_instance_message_handler()->init(this->q);
 
     // collapse sidebar according to saved value
     //if (wxGetApp().is_editor()) {
@@ -9005,6 +9006,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
     bool load_config = strategy & LoadStrategy::LoadConfig;
     bool imperial_units = strategy & LoadStrategy::ImperialUnits;
     bool silence = strategy & LoadStrategy::Silence;
+    const bool workspace_capture = wxGetApp().is_workspace_capture();
 
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": load_model %1%, load_config %2%, input_files size %3%")%load_model %load_config %input_files.size();
 
@@ -9267,7 +9269,8 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ":" << __LINE__
                                                 << " "
                                                 << boost::format("3MF import message [%1%]: %2% | file: %3%") % into_u8(title) % into_u8(text) % path.string();
-                        show_info(q, text, title);
+                        if (!workspace_capture)
+                            show_info(q, text, title);
                     };
                     auto skip_project_config = [&](const wxString& geometry_msg) {
                         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ":" << __LINE__
@@ -9442,7 +9445,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                         PresetsConfigSubstitutions preset_substitutions;
                         PresetBundle &             preset_bundle = *wxGetApp().preset_bundle;
                         preset_substitutions                     = preset_bundle.load_project_embedded_presets(project_presets, ForwardCompatibilitySubstitutionRule::Enable);
-                        if (is_bambu_studio_project)
+                        if (is_bambu_studio_project || workspace_capture)
                             log_substitutions(preset_substitutions, path.string());
                         else if (!preset_substitutions.empty())
                             show_substitutions_info(preset_substitutions);
@@ -9484,7 +9487,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                         }
                     }
                     // BambuStudio projects routinely carry values Orca replaces; log them rather than showing a dialog on every open.
-                    if (is_bambu_studio_project)
+                    if (is_bambu_studio_project || workspace_capture)
                         log_substitutions(config_substitutions.substitutions, path.string());
                     else if (!config_substitutions.empty())
                         show_substitutions_info(config_substitutions.substitutions, filename.string());
@@ -9897,6 +9900,11 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
             continue;
         }
 
+        if (workspace_capture && !is_project_file) {
+            BOOST_LOG_TRIVIAL(error) << "Workspace capture requires an imported project layout";
+            q->skip_thumbnail_invalid = false;
+            return empty_result;
+        }
         progress_percent = 100.0f * (float)i / (float)total_files + INIT_MODEL_RATIO * 100.0f / (float)total_files;
         dlg_cont = dlg.Update(progress_percent);
         if (!dlg_cont) {
