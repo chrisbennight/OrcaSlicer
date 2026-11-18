@@ -146,7 +146,11 @@ int GUI_Run(GUI_InitParams &params)
             }
             const auto directory = boost::filesystem::temp_directory_path() /
                 boost::filesystem::unique_path("orca-capture-%%%%-%%%%-%%%%-%%%%");
+#ifdef _WIN32
             if (!boost::filesystem::create_directory(directory))
+#else
+            if (::mkdir(directory.c_str(), S_IRWXU) != 0)
+#endif
                 throw std::runtime_error("Could not create disposable capture configuration");
             capture_data = directory;
             boost::filesystem::permissions(capture_data, boost::filesystem::owner_all);
