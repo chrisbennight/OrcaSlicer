@@ -952,7 +952,7 @@ void GUI_App::post_init()
             const auto loaded = plater_->load_files(input_files,
                 LoadStrategy::LoadModel | LoadStrategy::LoadConfig |
                     LoadStrategy::Silence | LoadStrategy::SkipSlicedFiles |
-                        LoadStrategy::SkipTextureDisplacement, false);
+                        LoadStrategy::SkipEditableAttachments, false);
             if (init_params->capture_requires_interaction)
                 throw Slic3r::RuntimeError("Workspace capture import requires user interaction");
             if (loaded.empty())

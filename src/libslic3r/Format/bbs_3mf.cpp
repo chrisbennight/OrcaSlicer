@@ -1168,7 +1168,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
         bool m_load_aux = false;
         bool m_load_config = false;
         bool m_load_sliced_files = true;
-        bool m_load_texture_displacement = true;
+        bool m_load_editable_attachments = true;
         // backup & restore
         bool m_load_restore = false;
         std::string m_backup_path;
@@ -1495,7 +1495,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
         m_load_restore = strategy & LoadStrategy::Restore;
         m_load_config = strategy & LoadStrategy::LoadConfig;
         m_load_sliced_files = !(strategy & LoadStrategy::SkipSlicedFiles);
-        m_load_texture_displacement = !(strategy & LoadStrategy::SkipTextureDisplacement);
+        m_load_editable_attachments = !(strategy & LoadStrategy::SkipEditableAttachments);
         m_model = &model;
         m_unit_factor = 1.0f;
         m_curr_object = nullptr;
@@ -2047,8 +2047,9 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                     // extract slic3r print config file
                     _extract_project_config_from_archive(archive, stat, config, config_substitutions, model);
                 }
-                else if (boost::algorithm::iequals(name, ORCA_CAD_RECIPE_FILE)
-                      || boost::algorithm::iequals(name, LEGACY_CAD_RECIPE_FILE)) {
+                else if (m_load_editable_attachments
+                      && (boost::algorithm::iequals(name, ORCA_CAD_RECIPE_FILE)
+                          || boost::algorithm::iequals(name, LEGACY_CAD_RECIPE_FILE))) {
                     // Restore the editable CAD recipe (optional; absent in non-CAD projects).
                     // The current name wins over the legacy one whichever the archive lists
                     // first, and the size the archive claims is capped before it is allocated.
@@ -2097,10 +2098,10 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                         }
                     }
                 }
-                else if (_is_svg_shape_file(name)) {
+                else if (m_load_editable_attachments && _is_svg_shape_file(name)) {
                     _extract_embossed_svg_shape_file(name, archive, stat);
                 }
-                else if (m_load_texture_displacement && boost::algorithm::istarts_with(name, TEXTURE_DISPLACEMENT_DIR)) {
+                else if (m_load_editable_attachments && boost::algorithm::istarts_with(name, TEXTURE_DISPLACEMENT_DIR)) {
                     std::string contents(stat.m_uncomp_size, '\0');
                     if (mz_zip_reader_extract_to_mem(&archive, stat.m_file_index, contents.data(), stat.m_uncomp_size, 0))
                         m_texture_displacement_files.emplace(name, std::move(contents));
@@ -3359,7 +3360,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
     // picking the texture again rather than a hard failure.
     void _BBS_3MF_Importer::_apply_texture_displacement(ModelVolume &volume, const std::string &json_path)
     {
-        if (!m_load_texture_displacement)
+        if (!m_load_editable_attachments)
             return;
         const auto json = m_texture_displacement_files.find(json_path);
         if (json == m_texture_displacement_files.end()) {

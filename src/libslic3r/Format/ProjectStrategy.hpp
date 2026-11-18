@@ -19,7 +19,7 @@ enum class LoadStrategy
     Silence = 32,
     ImperialUnits = 64,
     SkipSlicedFiles = 128,
-    SkipTextureDisplacement = 256,
+    SkipEditableAttachments = 256,
 
     Restore = 0x10000 | LoadModel | LoadConfig | LoadAuxiliary | Silence,
 };

@@ -8258,6 +8258,10 @@ bool CLI::setup(int argc, char **argv)
         for (const t_optiondef_map::value_type &optdef : *options)
             m_config.option(optdef.first, true);
 
+    if (m_given_option_keys.count("capture_workspace") && m_given_option_keys.count("datadir")) {
+        boost::nowide::cerr << "Workspace capture uses a private data directory and cannot be combined with --datadir" << std::endl;
+        return false;
+    }
     set_data_dir(m_config.opt_string("datadir"));
     if (!data_dir().empty() && !boost::filesystem::exists(data_dir())) {
         boost::nowide::cerr << "Could not create data directory: " << data_dir() << std::endl;
