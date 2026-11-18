@@ -105,12 +105,14 @@ void Camera::set_target(const Vec3d& target)
     }
 }
 
-void Camera::set_zoom(double zoom)
+void Camera::set_zoom(double zoom, bool clamp_minimum)
 {
     // Don't allow to zoom too far outside the scene.
-    const double zoom_min = min_zoom();
-    if (zoom_min > 0.0)
-        zoom = std::max(zoom, zoom_min);
+    if (clamp_minimum) {
+        const double zoom_min = min_zoom();
+        if (zoom_min > 0.0)
+            zoom = std::max(zoom, zoom_min);
+    }
 
     // Don't allow to zoom too close to the scene.
     m_zoom = std::min(zoom, max_zoom());

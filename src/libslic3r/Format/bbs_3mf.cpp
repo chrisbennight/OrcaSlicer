@@ -2110,7 +2110,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                     else
                         add_error("Error while reading texture displacement data");
                 }
-                else if (!dont_load_config && boost::algorithm::iequals(name, SLICE_INFO_CONFIG_FILE)) {
+                else if (!dont_load_config && m_load_sliced_files && boost::algorithm::iequals(name, SLICE_INFO_CONFIG_FILE)) {
                     m_parsing_slice_info = true;
                     //extract slice info from archive
                     _extract_xml_from_archive(archive, stat, _handle_start_config_xml_element, _handle_end_config_xml_element);

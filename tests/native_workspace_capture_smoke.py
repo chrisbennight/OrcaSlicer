@@ -19,11 +19,13 @@ from PIL import Image
 
 CORE = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
 PRODUCTION = "http://schemas.microsoft.com/3dmanufacturing/production/2015/06"
+CUBE_WIDTH_MM = 10
 
 
 def cube(path):
-    vertices = [(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0),
-                (0, 0, 3), (10, 0, 3), (10, 10, 3), (0, 10, 3)]
+    w = CUBE_WIDTH_MM
+    vertices = [(0, 0, 0), (w, 0, 0), (w, w, 0), (0, w, 0),
+                (0, 0, 3), (w, 0, 3), (w, w, 3), (0, w, 3)]
     triangles = [(0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7), (0, 1, 5),
                  (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6),
                  (3, 0, 4), (3, 4, 7)]
@@ -96,9 +98,10 @@ def with_second_plate(project, destination):
         bed_width = max(x_positions) - min(x_positions)
         first_bed_end = min(x_positions) + bed_width
         second_bed_start = min(x_positions) + 1.2 * bed_width
+        x_scale = 12
         for column in (0, 3, 6):
-            transform[column] *= 12
-        transform[9] = 0.5 * (first_bed_end + second_bed_start)
+            transform[column] *= x_scale
+        transform[9] = 0.5 * (first_bed_end + second_bed_start - x_scale * CUBE_WIDTH_MM)
         item.set("transform", " ".join(map(str, transform)))
         item.set(f"{{{PRODUCTION}}}UUID", str(uuid.uuid5(uuid.NAMESPACE_URL, "capture-smoke-plate-two")))
         build.append(item)
@@ -170,6 +173,9 @@ def main(app):
                    for first_row, replay_row in zip(first["view_matrix"], replay["view_matrix"], strict=True)
                    for left, right in zip(first_row, replay_row, strict=True))
         assert image == replay_image, "camera replay changed the rendered image"
+        wide, wide_image = capture(app, root / "wide", project,
+                                   {**request, "camera": {**request["camera"], "margin": 10.0}})
+        assert wide["camera"]["zoom"] < first["camera"]["zoom"] and wide_image != image
         assert hashlib.sha256(project.read_bytes()).hexdigest() == original, "source was modified"
         multi_plate = root / "multi-plate.3mf"
         first_bed_end, second_bed_start = with_second_plate(project, multi_plate)

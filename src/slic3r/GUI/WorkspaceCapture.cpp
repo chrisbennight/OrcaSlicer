@@ -243,7 +243,8 @@ void capture_workspace(const std::string& request_json, const std::string& outpu
     const Vec3d center = bounds.center();
     const double distance = std::max(1000.0, 2.0 * bounds.size().norm());
     camera.look_at(center - distance * camera.get_dir_forward(), center, camera.get_dir_up());
-    camera.set_zoom(camera.get_zoom());
+    // A capture can frame a smaller subject than the desktop zoom controls allow.
+    camera.set_zoom(camera.get_zoom(), false);
     const bool custom_target = view.contains("target") && !view.at("target").is_null();
     const bool custom_zoom = view.contains("zoom") && !view.at("zoom").is_null();
     if (!custom_target && !custom_zoom) {
@@ -265,7 +266,7 @@ void capture_workspace(const std::string& request_json, const std::string& outpu
         }
         if (extent * margin > 1.0) {
             const double fitted_zoom = camera.get_zoom() / (extent * margin);
-            camera.set_zoom(fitted_zoom);
+            camera.set_zoom(fitted_zoom, false);
             if (camera.get_zoom() > fitted_zoom * (1.0 + 1e-9))
                 throw std::runtime_error("Native camera zoom limits cannot fit the requested margin");
         }
@@ -276,7 +277,7 @@ void capture_workspace(const std::string& request_json, const std::string& outpu
         const double zoom = view.at("zoom").get<double>();
         if (!std::isfinite(zoom) || zoom <= 0)
             throw std::runtime_error("Camera zoom must be finite and positive");
-        camera.set_zoom(zoom);
+        camera.set_zoom(zoom, false);
         if (std::abs(camera.get_zoom() - zoom) > 1e-9 * std::max(1.0, zoom))
             throw std::runtime_error("Requested native camera zoom exceeds the layout's supported range");
     }
