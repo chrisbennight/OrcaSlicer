@@ -959,10 +959,12 @@ void GUI_App::post_init()
             // Layout capture uses the native model-placement representation,
             // including estimated towers, even when the package contains G-code.
             plater_->set_using_exported_file(false);
+            mainframe->select_prepare_for_gl_init();
+            plater_->select_view_3D("3D");
             plater_->canvas3D()->render(true);
             if (init_params->capture_requires_interaction)
                 throw Slic3r::RuntimeError("Workspace capture initialization requires user interaction");
-            capture_workspace(init_params->capture_workspace, init_params->capture_output_directory);
+            capture_workspace(init_params->capture_request_json, init_params->capture_output_directory);
             init_params->capture_exit_code = 0;
         } catch (const WorkspaceCaptureUnavailable& error) {
             BOOST_LOG_TRIVIAL(error) << "Workspace capture unavailable: " << error.what();
@@ -3245,7 +3247,8 @@ bool GUI_App::on_init_inner()
 #ifdef __APPLE__
     // Override wxWidgets' kAEGetURL handler so orcaslicer:// deep links keep
     // working after the wxWidgets 3.3.2 upgrade on macOS (#13119).
-    register_mac_deep_link_handler();
+    if (!is_workspace_capture())
+        register_mac_deep_link_handler();
 #endif
 #if BBL_RELEASE_TO_PUBLIC
     wxLog::SetLogLevel(wxLOG_Message);
@@ -9667,12 +9670,13 @@ void GUI_App::OSXStoreOpenFiles(const wxArrayString &fileNames)
         app_config = nullptr;
         init_app_config();
     }*/
-    wxApp::OSXStoreOpenFiles(fileNames);
+    if (!is_workspace_capture())
+        wxApp::OSXStoreOpenFiles(fileNames);
 }
 
 void GUI_App::MacOpenURL(const wxString& url)
 {
-    if (url.empty())
+    if (is_workspace_capture() || url.empty())
         return;
     start_download(into_u8(url));
 }
@@ -9680,6 +9684,8 @@ void GUI_App::MacOpenURL(const wxString& url)
 // wxWidgets override to get an event on open files.
 void GUI_App::MacOpenFiles(const wxArrayString &fileNames)
 {
+    if (is_workspace_capture())
+        return;
     bool single_instance = app_config->get("app", "single_instance") == "true";
     if (m_post_initialized && !single_instance) {
         bool has3mf = false;

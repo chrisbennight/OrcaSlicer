@@ -12,7 +12,7 @@ public:
 };
 
 // The caller owns the disposable application, display, working directory and
-// deadline. Both the source project and the request are read-only inputs.
-void capture_workspace(const std::string& request_path, const std::string& output_directory);
+// deadline and validates the request before importing the source project.
+void capture_workspace(const std::string& request_json, const std::string& output_directory);
 
 }}

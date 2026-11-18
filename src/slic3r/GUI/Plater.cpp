@@ -10007,7 +10007,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                 return empty_result;
             }
 
-            if (!model_object->instances.empty())
+            if (!workspace_capture && !model_object->instances.empty())
                 model_object->ensure_on_bed(is_project_file);
         }
 
@@ -10327,6 +10327,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
 
 std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& model_objects, bool allow_negative_z, bool split_object, bool auto_drop)
 {
+    const bool workspace_capture = wxGetApp().is_workspace_capture();
     const Vec3d bed_size = Slic3r::to_3d(this->bed.build_volume().bounding_volume2d().size(), 1.0) - 2.0 * Vec3d::Ones();
 
 #ifndef AUTOPLACEMENT_ON_LOAD
@@ -10340,6 +10341,8 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
     ModelInstancePtrs new_instances;
 #endif /* AUTOPLACEMENT_ON_LOAD */
     for (ModelObject *model_object : model_objects) {
+        if (workspace_capture && model_object->instances.empty())
+            continue;
         auto *object = model.add_object(*model_object);
         object->sort_volumes(true);
         std::string object_name = object->name.empty() ? fs::path(object->input_file).filename().string() : object->name;
@@ -10368,6 +10371,11 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
             const Vec3d size = object->instance_bounding_box(i).size();
             const Vec3d ratio = size.cwiseQuotient(bed_size);
             const double max_ratio = std::max(ratio(0), ratio(1));
+            if (workspace_capture) {
+                if (max_ratio > 10000)
+                    throw Slic3r::RuntimeError("Workspace capture cannot represent the saved object scale");
+                continue;
+            }
             if (max_ratio > 10000) {
                 MessageDialog dlg(q, _L("Your object appears to be too large, do you want to scale it down to fit the print bed automatically?"), _L("Object too large"),
                                   wxICON_QUESTION | wxYES);
@@ -10391,14 +10399,14 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
             }
         }
 
-        if (!auto_drop) {
+        if (!workspace_capture && !auto_drop) {
             object->auto_drop = false;
 
             // if under the bed, move over the bed
             double dist_to_bed = std::min(object->min_z(), double(0));
             object->translate_instances(Vec3d(0, 0, -dist_to_bed));
         }
-        else {
+        else if (!workspace_capture) {
             object->ensure_on_bed(allow_negative_z);
         }
 

@@ -23,11 +23,19 @@
 #include <boost/nowide/iostream.hpp>
 #include <boost/nowide/convert.hpp>
 #include <wx/string.h>
-#include <boost/nowide/fstream.hpp>
+#include <boost/nowide/cstdio.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/log/core.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/log/utility/setup/console.hpp>
+#include <cstdio>
+#include <memory>
+
+#ifndef _WIN32
+    #include <fcntl.h>
+    #include <sys/stat.h>
+    #include <unistd.h>
+#endif
 
 #if __APPLE__
     #include <signal.h>
@@ -37,6 +45,39 @@ namespace Slic3r {
 namespace GUI {
 
 const std::vector<std::pair<int, int>> OpenGLVersions::core    = { {3,2}, {3,3}, {4,0}, {4,1}, {4,2}, {4,3}, {4,4}, {4,5}, {4,6} };
+
+static std::string read_capture_request(const std::string& path)
+{
+    constexpr size_t max_request_bytes = 1024 * 1024;
+#ifdef _WIN32
+    if (!boost::filesystem::is_regular_file(path))
+        throw std::runtime_error("Workspace capture requires a regular request file");
+    FILE *input = boost::nowide::fopen(path.c_str(), "rb");
+#else
+    const int descriptor = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (descriptor < 0)
+        throw std::runtime_error("Could not open the workspace capture request");
+    struct stat info {};
+    if (::fstat(descriptor, &info) != 0 || !S_ISREG(info.st_mode)) {
+        ::close(descriptor);
+        throw std::runtime_error("Workspace capture requires a regular request file");
+    }
+    FILE *input = ::fdopen(descriptor, "rb");
+    if (input == nullptr)
+        ::close(descriptor);
+#endif
+    if (input == nullptr)
+        throw std::runtime_error("Could not open the workspace capture request");
+    const std::unique_ptr<FILE, decltype(&std::fclose)> request(input, std::fclose);
+    std::string json(max_request_bytes + 1, '\0');
+    const size_t bytes = std::fread(json.data(), 1, json.size(), request.get());
+    if (std::ferror(request.get()))
+        throw std::runtime_error("Could not read the workspace capture request");
+    if (bytes > max_request_bytes)
+        throw std::runtime_error("Workspace capture request exceeds its size limit");
+    json.resize(bytes);
+    return json;
+}
 
 int GUI_Run(GUI_InitParams &params)
 {
@@ -90,8 +131,8 @@ int GUI_Run(GUI_InitParams &params)
     try {
         if (!params.capture_workspace.empty()) {
             params.capture_workspace = boost::filesystem::canonical(params.capture_workspace).string();
-            boost::nowide::ifstream request(params.capture_workspace);
-            validate_workspace_capture_request(nlohmann::json::parse(request));
+            params.capture_request_json = read_capture_request(params.capture_workspace);
+            validate_workspace_capture_request(nlohmann::json::parse(params.capture_request_json));
             params.capture_output_directory = boost::filesystem::current_path().string();
             for (const char* name : {"capture.png", "capture.json"})
                 if (boost::filesystem::exists(boost::filesystem::path(params.capture_output_directory) / name))

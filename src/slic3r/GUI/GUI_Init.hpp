@@ -29,6 +29,7 @@ struct GUI_InitParams
     std::vector<std::string>    input_files;
     // A data-only native layout observation in a disposable application instance.
     std::string                capture_workspace;
+    std::string                capture_request_json;
     std::string                capture_output_directory;
     int                        capture_exit_code { 1 };
     bool                       capture_requires_interaction { false };

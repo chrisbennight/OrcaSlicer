@@ -1,7 +1,6 @@
 #include <glad/gl.h>
 
 #include "WorkspaceCapture.hpp"
-#include "WorkspaceCaptureRequest.hpp"
 
 #include "BuildCommit.hpp"
 #include "Camera.hpp"
@@ -123,11 +122,9 @@ struct Framebuffer {
 };
 }
 
-void capture_workspace(const std::string& request_path, const std::string& output_directory)
+void capture_workspace(const std::string& request_json, const std::string& output_directory)
 {
-    boost::nowide::ifstream input(request_path);
-    const json request = json::parse(input);
-    validate_workspace_capture_request(request);
+    const json request = json::parse(request_json);
     const int width = request.at("width").get<int>();
     const int height = request.at("height").get<int>();
     if (width <= 0 || height <= 0 || size_t(width) > std::numeric_limits<size_t>::max() / size_t(height) / 3)
