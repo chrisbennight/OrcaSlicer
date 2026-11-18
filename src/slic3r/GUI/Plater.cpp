@@ -9126,7 +9126,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                                                                  if (cancel)
                                                                      is_user_cancel = cancel;
                                                              });
-                    if (plate_data.size() > PartPlateList::MAX_PLATES_COUNT) {
+                    if (load_config && plate_data.size() > PartPlateList::MAX_PLATES_COUNT) {
                         release_PlateData_list(plate_data);
                         for (auto* preset : project_presets)
                             delete preset;

@@ -2066,7 +2066,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                             model.cad_recipe = std::move(buf);
                     }
                 }
-                else if (boost::algorithm::iequals(name, CUT_INFORMATION_FILE)) {
+                else if (m_load_editable_attachments && boost::algorithm::iequals(name, CUT_INFORMATION_FILE)) {
                     // extract object cut info
                     _extract_cut_information_from_archive(archive, stat, config_substitutions);
                 }
