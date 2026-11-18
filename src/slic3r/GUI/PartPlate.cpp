@@ -8567,11 +8567,19 @@ int PartPlateList::load_from_3mf_structure(PlateDataPtrs& plate_data_list, int f
 		BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(":no plates, should not happen!");
 		return -1;
 	}
+	if (plate_data_list.size() > MAX_PLATES_COUNT) {
+		BOOST_LOG_TRIVIAL(error) << "Project exceeds the plate limit";
+		return -1;
+	}
+	const bool workspace_capture = m_plater && wxGetApp().is_workspace_capture();
+	const bool load_preview_files = m_plater && !workspace_capture;
 	clear(true, true);
 	set_filament_count(filament_count);
 	for (unsigned int i = 0; i < (unsigned int)plate_data_list.size(); ++i)
 	{
 		int index = create_plate(false);
+		if (index < 0)
+			return -1;
 		m_plate_list[index]->m_locked = plate_data_list[i]->locked;
 		m_plate_list[index]->config()->apply(plate_data_list[i]->config);
 		m_plate_list[index]->set_plate_name(plate_data_list[i]->plate_name);
@@ -8585,7 +8593,7 @@ int PartPlateList::load_from_3mf_structure(PlateDataPtrs& plate_data_list, int f
 		//just test for file correct or not, we will rebuild later
 		/*for (std::vector<std::pair<int, int>>::iterator it = plate_data_list[i]->objects_and_instances.begin(); it != plate_data_list[i]->objects_and_instances.end(); ++it)
 			m_plate_list[index]->obj_to_instance_set.insert(std::pair(it->first, it->second));*/
-		if (!plate_data_list[i]->gcode_file.empty()) {
+		if (!workspace_capture && !plate_data_list[i]->gcode_file.empty()) {
 			m_plate_list[index]->m_gcode_path_from_3mf = plate_data_list[i]->gcode_file;
 		}
 		GCodeResult* gcode_result = nullptr;
@@ -8669,7 +8677,7 @@ int PartPlateList::load_from_3mf_structure(PlateDataPtrs& plate_data_list, int f
             else
                 gcode_result->nozzle_group_result = nullptr;
         }
-		if (m_plater && !plate_data_list[i]->thumbnail_file.empty()) {
+		if (load_preview_files && !plate_data_list[i]->thumbnail_file.empty()) {
 			BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": plate %1%, load thumbnail from %2%.")%(i+1) %plate_data_list[i]->thumbnail_file;
 			if (boost::filesystem::exists(plate_data_list[i]->thumbnail_file)) {
 				m_plate_list[index]->load_thumbnail_data(plate_data_list[i]->thumbnail_file, m_plate_list[index]->thumbnail_data);
@@ -8678,7 +8686,7 @@ int PartPlateList::load_from_3mf_structure(PlateDataPtrs& plate_data_list, int f
 			}
 		}
 
-		if (m_plater && !plate_data_list[i]->no_light_thumbnail_file.empty()) {
+		if (load_preview_files && !plate_data_list[i]->no_light_thumbnail_file.empty()) {
 			if (boost::filesystem::exists(plate_data_list[i]->no_light_thumbnail_file)) {
 				BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": plate %1%, load no_light_thumbnail_file from %2%.")%(i+1) %plate_data_list[i]->no_light_thumbnail_file;
 				m_plate_list[index]->load_thumbnail_data(plate_data_list[i]->no_light_thumbnail_file, m_plate_list[index]->no_light_thumbnail_data);
@@ -8691,19 +8699,19 @@ int PartPlateList::load_from_3mf_structure(PlateDataPtrs& plate_data_list, int f
 				//m_plate_list[index]->load_pattern_thumbnail_data(plate_data_list[i]->pattern_file);
 			}
 		}*/
-		if (m_plater && !plate_data_list[i]->top_file.empty()) {
+		if (load_preview_files && !plate_data_list[i]->top_file.empty()) {
 			if (boost::filesystem::exists(plate_data_list[i]->top_file)) {
 				BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": plate %1%, load top_thumbnail from %2%.")%(i+1) %plate_data_list[i]->top_file;
 				m_plate_list[index]->load_thumbnail_data(plate_data_list[i]->top_file, m_plate_list[index]->top_thumbnail_data);
 			}
 		}
-		if (m_plater && !plate_data_list[i]->pick_file.empty()) {
+		if (load_preview_files && !plate_data_list[i]->pick_file.empty()) {
 			if (boost::filesystem::exists(plate_data_list[i]->pick_file)) {
 				BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": plate %1%, load pick_thumbnail from %2%.")%(i+1) %plate_data_list[i]->pick_file;
 				m_plate_list[index]->load_thumbnail_data(plate_data_list[i]->pick_file, m_plate_list[index]->pick_thumbnail_data);
 			}
 		}
-		if (m_plater && !plate_data_list[i]->pattern_bbox_file.empty()) {
+		if (load_preview_files && !plate_data_list[i]->pattern_bbox_file.empty()) {
 			if (boost::filesystem::exists(plate_data_list[i]->pattern_bbox_file)) {
 				m_plate_list[index]->load_pattern_box_data(plate_data_list[i]->pattern_bbox_file);
 			}

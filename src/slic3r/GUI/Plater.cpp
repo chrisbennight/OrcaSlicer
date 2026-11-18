@@ -9085,7 +9085,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
         Slic3r::Model model;
         // BBS: add auxiliary files related logic
         bool load_aux = strategy & LoadStrategy::LoadAuxiliary, load_old_project = false;
-        if (load_model && load_config && type_3mf) {
+        if (load_model && load_config && type_3mf && !workspace_capture) {
             load_aux = true;
             strategy = strategy | LoadStrategy::LoadAuxiliary;
         }
@@ -9125,6 +9125,14 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                                                                  if (cancel)
                                                                      is_user_cancel = cancel;
                                                              });
+                    if (workspace_capture && plate_data.size() > PartPlateList::MAX_PLATES_COUNT) {
+                        release_PlateData_list(plate_data);
+                        for (auto* preset : project_presets)
+                            delete preset;
+                        q->skip_thumbnail_invalid = false;
+                        BOOST_LOG_TRIVIAL(error) << "Workspace capture project exceeds the plate limit";
+                        return empty_result;
+                    }
                           BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ":" << __LINE__
                                       << boost::format(", plate_data.size %1%, project_preset.size %2%, is_bbs_or_orca_3mf %3%, file_version %4% \n") % plate_data.size() %
                                           project_presets.size() % (en_3mf_file_type == En3mfType::From_BBS || en_3mf_file_type == En3mfType::From_Orca) % file_version.to_string();
@@ -9282,6 +9290,8 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                             log_and_show_3mf_info(geometry_msg, load_3mf_title);
                     };
                     auto migrate_2_3_1_alpha_rotate_template = [&]() {
+                        if (workspace_capture)
+                            return;
                         auto* rotate_template = config_loaded.option<ConfigOptionString>("sparse_infill_rotate_template");
                         if (rotate_template == nullptr || rotate_template->value.empty())
                             return;
@@ -10202,7 +10212,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
     //BBS: add gcode loading logic in the end
     q->m_exported_file = false;
     q->skip_thumbnail_invalid = false;
-    if (load_model && load_config) {
+    if (load_model && load_config && !workspace_capture) {
         if (model.objects.empty()) {
             partplate_list.load_gcode_files();
             PartPlate * first_plate = nullptr, *cur_plate = nullptr;
@@ -21826,6 +21836,8 @@ void Plater::set_bed_shape() const
         }
     }
     const ConfigOptionPoints *bed_exclude_area = p->config->option<ConfigOptionPoints>("bed_exclude_area");
+    const bool workspace_capture = wxGetApp().is_workspace_capture();
+    const std::string& custom_texture = p->config->option<ConfigOptionString>("bed_custom_texture")->value;
     set_bed_shape(p->config->option<ConfigOptionPoints>("printable_area")->values,
         //BBS: add bed exclude areas
         bed_exclude_area->values,
@@ -21833,8 +21845,8 @@ void Plater::set_bed_shape() const
         p->config->option<ConfigOptionFloat>("printable_height")->value,
         p->config->option<ConfigOptionPointsGroups>("extruder_printable_area")->values,
         p->config->option<ConfigOptionFloatsNullable>("extruder_printable_height")->values,
-        p->config->option<ConfigOptionString>("bed_custom_texture")->value.empty() ? texture_filename : p->config->option<ConfigOptionString>("bed_custom_texture")->value,
-        p->config->option<ConfigOptionString>("bed_custom_model")->value);
+        workspace_capture || custom_texture.empty() ? texture_filename : custom_texture,
+        workspace_capture ? std::string{} : p->config->option<ConfigOptionString>("bed_custom_model")->value);
 }
 
 //BBS: add bed exclude area
