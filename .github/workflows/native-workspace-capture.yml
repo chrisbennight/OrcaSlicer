@@ -3,7 +3,8 @@ name: Native workspace capture
 on:
   pull_request:
     branches: [printable-2.5.1]
-  workflow_dispatch:
+  push:
+    branches: [printable-2.5.1]
 
 permissions:
   contents: read
