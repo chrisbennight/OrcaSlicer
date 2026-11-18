@@ -6884,6 +6884,9 @@ void PartPlateList::delete_selected_plate()
 
 bool PartPlateList::check_all_plate_local_bed_type(const std::vector<BedType> &cur_bed_types)
 {
+    // Layout capture keeps authored plate settings when the sidebar refreshes.
+    if (m_plater && wxGetApp().is_workspace_capture())
+        return true;
     std::string bed_type_key = "curr_bed_type";
     bool        is_ok        = true;
     for (int i = 0; i < m_plate_list.size(); i++) {

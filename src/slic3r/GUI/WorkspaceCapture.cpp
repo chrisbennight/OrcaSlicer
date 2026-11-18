@@ -11,6 +11,7 @@
 #include "PartPlate.hpp"
 #include "Plater.hpp"
 #include "libslic3r/PNGReadWrite.hpp"
+#include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Utils.hpp"
 #include "nlohmann/json.hpp"
 
@@ -174,10 +175,15 @@ void capture_workspace(const std::string& request_json, const std::string& outpu
         bounds.merge(canvas.workspace_bed_bounding_box());
     }
     json plate_ids = json::array(), volumes = json::array();
+    json plate_bed_overrides = json::object();
     for (int index : selected_plates) {
         plate_ids.push_back(index + 1);
+        PartPlate* plate = plates.get_plate(index);
+        const BedType bed = plate->get_bed_type();
+        if (bed != btDefault)
+            plate_bed_overrides[std::to_string(index + 1)] = bed_type_to_gcode_string(bed);
         if (show_beds || show_identifiers)
-            bounds.merge(plates.get_plate(index)->get_capture_bounding_box(show_beds, show_identifiers));
+            bounds.merge(plate->get_capture_bounding_box(show_beds, show_identifiers));
     }
     for (const GLVolume* volume : canvas.get_volumes().volumes) {
         if (!visible(*volume))
@@ -315,6 +321,7 @@ void capture_workspace(const std::string& request_json, const std::string& outpu
         {"representation", "model_placement"}, {"prime_towers", "native_estimated"},
         {"engine", {{"name", "OrcaSlicer"}, {"version", SoftFever_VERSION}, {"source_revision", build_commit_hash}}},
         {"width", width}, {"height", height}, {"plates", plate_ids}, {"objects", request.at("objects")},
+        {"plate_bed_overrides", plate_bed_overrides},
         {"visibility", visibility}, {"camera", {{"preset", preset}, {"projection", projection},
             {"orientation", {rotation.w(), rotation.x(), rotation.y(), rotation.z()}},
             {"target", vector_json(camera.get_target())}, {"zoom", camera.get_zoom()}, {"margin", margin}}},

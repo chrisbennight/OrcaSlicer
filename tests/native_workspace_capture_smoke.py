@@ -167,6 +167,8 @@ def main(app):
         drawn = {(volume["object"], volume["instance"]) for volume in second_plate["volumes"]
                  if not volume["prime_tower"]}
         assert drawn == {(1, 2)}, "capture did not retain the selected plate's placement"
+        assert second_plate["plate_bed_overrides"] == {"2": "hot_plate"}, (
+            "capture did not retain the selected plate's saved bed type")
         assert hashlib.sha256(multi_plate.read_bytes()).hexdigest() == original_multi
         print("Verified native software-rendered workspace capture and camera replay", flush=True)
 
