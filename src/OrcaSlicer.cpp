@@ -4716,7 +4716,10 @@ int CLI::run(int argc, char **argv)
     };
     if (plate_data_src.size() > 0)
     {
-        partplate_list.load_from_3mf_structure(plate_data_src);
+        if (partplate_list.load_from_3mf_structure(plate_data_src) < 0) {
+            record_exit_reson(outfile_dir, CLI_DATA_FILE_ERROR, 0, "Could not load the project plate definitions.", sliced_info);
+            flush_and_exit(CLI_DATA_FILE_ERROR);
+        }
 
         int plate_count = partplate_list.get_plate_count();
         plate_obj_size_infos.resize(plate_count, plate_obj_size_info_t());
@@ -5667,7 +5670,10 @@ int CLI::run(int argc, char **argv)
                         model.clear_objects();
                         model.clear_materials();
                         model = original_model;
-                        partplate_list.load_from_3mf_structure(plate_data_src);
+                        if (!plate_data_src.empty() && partplate_list.load_from_3mf_structure(plate_data_src) < 0) {
+                            record_exit_reson(outfile_dir, CLI_DATA_FILE_ERROR, 0, "Could not restore the project plate definitions.", sliced_info);
+                            flush_and_exit(CLI_DATA_FILE_ERROR);
+                        }
 
                         selected.clear();
                         unselected.clear();

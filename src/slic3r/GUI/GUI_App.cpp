@@ -950,7 +950,8 @@ void GUI_App::post_init()
             const std::vector<boost::filesystem::path> input_files(
                 init_params->input_files.begin(), init_params->input_files.end());
             const auto loaded = plater_->load_files(input_files,
-                LoadStrategy::LoadModel | LoadStrategy::LoadConfig | LoadStrategy::Silence, false);
+                LoadStrategy::LoadModel | LoadStrategy::LoadConfig |
+                    LoadStrategy::Silence | LoadStrategy::SkipSlicedFiles, false);
             if (init_params->capture_requires_interaction)
                 throw Slic3r::RuntimeError("Workspace capture import requires user interaction");
             if (loaded.empty())

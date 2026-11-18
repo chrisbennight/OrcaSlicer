@@ -9424,7 +9424,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                         Semver old_version(1, 5, 9);
                         // A published 3MF has no project config to migrate: skip the old-version
                         // translations even if a slicer tag slipped through classification.
-                        if ((en_3mf_file_type == En3mfType::From_BBS || en_3mf_file_type == En3mfType::From_Orca) && (file_version < old_version) && !published_config.published && load_model && load_config && !config_loaded.empty()) {
+                        if (!workspace_capture && (en_3mf_file_type == En3mfType::From_BBS || en_3mf_file_type == En3mfType::From_Orca) && (file_version < old_version) && !published_config.published && load_model && load_config && !config_loaded.empty()) {
                             translate_old = true;
                             partplate_list.get_plate_size(current_width, current_depth, current_height);
                         }

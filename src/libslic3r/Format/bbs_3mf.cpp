@@ -1167,6 +1167,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
         bool m_load_model = false;
         bool m_load_aux = false;
         bool m_load_config = false;
+        bool m_load_sliced_files = true;
         // backup & restore
         bool m_load_restore = false;
         std::string m_backup_path;
@@ -1492,6 +1493,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
         m_load_aux = strategy & LoadStrategy::LoadAuxiliary;
         m_load_restore = strategy & LoadStrategy::Restore;
         m_load_config = strategy & LoadStrategy::LoadConfig;
+        m_load_sliced_files = !(strategy & LoadStrategy::SkipSlicedFiles);
         m_model = &model;
         m_unit_factor = 1.0f;
         m_curr_object = nullptr;
@@ -2117,15 +2119,15 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                     if (m_load_aux && !m_load_restore)
                         _extract_auxiliary_file_from_archive(archive, stat, model);
                 }
-                else if (!dont_load_config && boost::algorithm::istarts_with(name, METADATA_DIR) && boost::algorithm::iends_with(name, GCODE_EXTENSION)) {
+                else if (!dont_load_config && m_load_sliced_files && boost::algorithm::istarts_with(name, METADATA_DIR) && boost::algorithm::iends_with(name, GCODE_EXTENSION)) {
                     //load gcode files
                     _extract_file_from_archive(archive, stat);
                 }
-                else if (!dont_load_config && boost::algorithm::istarts_with(name, METADATA_DIR) && boost::algorithm::iends_with(name, THUMBNAIL_EXTENSION)) {
+                else if (!dont_load_config && m_load_sliced_files && boost::algorithm::istarts_with(name, METADATA_DIR) && boost::algorithm::iends_with(name, THUMBNAIL_EXTENSION)) {
                     //BBS parsing pattern thumbnail and plate thumbnails
                     _extract_file_from_archive(archive, stat);
                 }
-                else if (!dont_load_config && boost::algorithm::istarts_with(name, METADATA_DIR) && boost::algorithm::iends_with(name, CALIBRATION_INFO_EXTENSION)) {
+                else if (!dont_load_config && m_load_sliced_files && boost::algorithm::istarts_with(name, METADATA_DIR) && boost::algorithm::iends_with(name, CALIBRATION_INFO_EXTENSION)) {
                     //BBS parsing pattern config files
                     _extract_file_from_archive(archive, stat);
                 }
