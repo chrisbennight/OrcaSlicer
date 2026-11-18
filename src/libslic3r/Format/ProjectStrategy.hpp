@@ -20,6 +20,7 @@ enum class LoadStrategy
     ImperialUnits = 64,
     SkipSlicedFiles = 128,
     SkipEditableAttachments = 256,
+    PreservePlateAssignments = 512,
 
     Restore = 0x10000 | LoadModel | LoadConfig | LoadAuxiliary | Silence,
 };

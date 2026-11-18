@@ -1037,7 +1037,8 @@ public:
     int add_to_plate(int obj_id, int instance_id, int plate_id);
 
     //reload all objects
-    int reload_all_objects(bool except_locked = false, int plate_index = -1);
+    int reload_all_objects(bool except_locked = false, int plate_index = -1,
+                           bool preserve_plate_assignments = false);
 
     //reload objects for newly created plate
     int construct_objects_list_for_new_plate(int plate_index);

@@ -7512,7 +7512,7 @@ int PartPlateList::add_to_plate(int obj_id, int instance_id, int plate_id)
 }
 
 //reload all objects
-int PartPlateList::reload_all_objects(bool except_locked, int plate_index)
+int PartPlateList::reload_all_objects(bool except_locked, int plate_index, bool preserve_plate_assignments)
 {
 	int ret = 0;
 	unsigned int i, j, k;
@@ -7528,6 +7528,12 @@ int PartPlateList::reload_all_objects(bool except_locked, int plate_index)
 		{
 			ModelInstance* instance = object->instances[j];
 			BoundingBoxf3 boundingbox = object->instance_convex_hull_bounding_box(j);
+			if (preserve_plate_assignments && instance->source_plate_index >= 0) {
+				if (PartPlate* source_plate = get_plate(instance->source_plate_index)) {
+					source_plate->add_instance(i, j, false, &boundingbox);
+					continue;
+				}
+			}
 			for (k = 0; k < (unsigned int)m_plate_list.size(); ++k)
 			{
 				PartPlate* plate = m_plate_list[k];

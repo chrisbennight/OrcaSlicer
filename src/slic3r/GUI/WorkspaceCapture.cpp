@@ -133,12 +133,12 @@ void capture_workspace(const std::string& request_json, const std::string& outpu
 
     Plater& plater = *wxGetApp().plater();
     GLCanvas3D& canvas = *plater.canvas3D();
-    if (!canvas.make_current_for_postinit() || !wxGetApp().init_opengl())
+    if (!canvas.make_current_for_postinit() || !wxGetApp().init_opengl() || !canvas.is_initialized())
         throw WorkspaceCaptureUnavailable("Native capture OpenGL context is unavailable");
     PartPlateList& plates = plater.get_partplate_list();
-    // Import can resize beds after the initial instance assignment. Rebuild
-    // membership against the resolved printer without moving any instances.
-    plates.reload_all_objects();
+    // Rebuild after resolving the printer. Placements without a saved plate
+    // use geometry, while explicitly assigned instances keep their source plate.
+    plates.reload_all_objects(false, -1, true);
     canvas.reload_scene(true);
 
     GLint max_size = 0;
