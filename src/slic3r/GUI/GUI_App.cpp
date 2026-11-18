@@ -171,6 +171,7 @@
 #include <wx/dialog.h>
 #include <wx/textctrl.h>
 #include <wx/splash.h>
+#include "WorkspaceCapture.hpp"
 #include <wx/weakref.h>
 #include <wx/fontutil.h>
 #include <wx/glcanvas.h>
@@ -939,6 +940,46 @@ void GUI_App::post_init()
     if (! this->initialized())
         throw Slic3r::RuntimeError("Calling post_init() while not yet initialized");
 
+    if (!init_params->capture_workspace.empty()) {
+        try {
+            if (init_params->capture_requires_interaction)
+                throw Slic3r::RuntimeError("Workspace capture startup requires user interaction");
+            mainframe->select_prepare_for_gl_init();
+            plater_->select_view_3D("3D");
+            plater_->suppress_background_process(true);
+            const std::vector<boost::filesystem::path> input_files(
+                init_params->input_files.begin(), init_params->input_files.end());
+            const auto loaded = plater_->load_files(input_files,
+                LoadStrategy::LoadModel | LoadStrategy::LoadConfig |
+                    LoadStrategy::Silence | LoadStrategy::SkipSlicedFiles |
+                        LoadStrategy::SkipEditableAttachments | LoadStrategy::PreservePlateAssignments, false);
+            if (init_params->capture_requires_interaction)
+                throw Slic3r::RuntimeError("Workspace capture import requires user interaction");
+            if (loaded.empty())
+                throw Slic3r::RuntimeError("Workspace capture could not load the project layout");
+            plater_->suppress_background_process(true);
+            // Layout capture uses the native model-placement representation,
+            // including estimated towers, even when the package contains G-code.
+            plater_->set_using_exported_file(false);
+            mainframe->select_prepare_for_gl_init();
+            plater_->select_view_3D("3D");
+            plater_->canvas3D()->render(true);
+            if (init_params->capture_requires_interaction)
+                throw Slic3r::RuntimeError("Workspace capture initialization requires user interaction");
+            capture_workspace(init_params->capture_request_json, init_params->capture_output_directory);
+            init_params->capture_exit_code = 0;
+        } catch (const WorkspaceCaptureUnavailable& error) {
+            BOOST_LOG_TRIVIAL(error) << "Workspace capture unavailable: " << error.what();
+            init_params->capture_exit_code = workspace_capture_unavailable_exit_code;
+        } catch (const std::exception& error) {
+            BOOST_LOG_TRIVIAL(error) << "Workspace capture failed: " << error.what();
+            init_params->capture_exit_code = 1;
+        }
+        mainframe->shutdown();
+        ExitMainLoop();
+        return;
+    }
+
 #if wxUSE_WEBVIEW_EDGE
     // Ensure the Microsoft WebView2 runtime is installed before any WebView is
     // created. The setup wizard and several dialogs render entirely through
@@ -1239,6 +1280,11 @@ void GUI_App::post_init()
     // Sets window property to mainframe so other instances can indentify it.
     OtherInstanceMessageHandler::init_windows_properties(mainframe, m_instance_hash_int);
 #endif //WIN32
+}
+
+bool GUI_App::is_workspace_capture() const
+{
+    return init_params != nullptr && !init_params->capture_workspace.empty();
 }
 
 wxDEFINE_EVENT(EVT_ENTER_FORCE_UPGRADE, wxCommandEvent);
@@ -3203,7 +3249,8 @@ bool GUI_App::on_init_inner()
 #ifdef __APPLE__
     // Override wxWidgets' kAEGetURL handler so orcaslicer:// deep links keep
     // working after the wxWidgets 3.3.2 upgrade on macOS (#13119).
-    register_mac_deep_link_handler();
+    if (!is_workspace_capture())
+        register_mac_deep_link_handler();
 #endif
 #if BBL_RELEASE_TO_PUBLIC
     wxLog::SetLogLevel(wxLOG_Message);
@@ -3341,7 +3388,7 @@ bool GUI_App::on_init_inner()
 //    wxSystemOptions::SetOption("msw.notebook.themed-background", 0);
 
 //     Slic3r::debugf "wxWidgets version %s, Wx version %s\n", wxVERSION_STRING, wxVERSION;
-    if (is_editor()) {
+    if (is_editor() && init_params->capture_workspace.empty()) {
         std::string msg = Slic3r::Http::tls_global_init();
         std::string ssl_cert_store = app_config->get("tls_accepted_cert_store_location");
         bool ssl_accept = app_config->get("tls_cert_store_accepted") == "yes" && ssl_cert_store == Slic3r::Http::tls_system_cert_store();
@@ -3472,18 +3519,20 @@ bool GUI_App::on_init_inner()
 
     if (is_editor()) {
 #ifdef __WXMSW__
-        if (app_config->get("associate_3mf") == "true")
-            associate_files(L"3mf");
-        if (app_config->get("associate_stl") == "true")
-            associate_files(L"stl");
-        if (app_config->get("associate_step") == "true") {
-            associate_files(L"step");
-            associate_files(L"stp");
-        }
-        associate_url(L"orcaslicer");
+        if (init_params->capture_workspace.empty()) {
+            if (app_config->get("associate_3mf") == "true")
+                associate_files(L"3mf");
+            if (app_config->get("associate_stl") == "true")
+                associate_files(L"stl");
+            if (app_config->get("associate_step") == "true") {
+                associate_files(L"step");
+                associate_files(L"stp");
+            }
+            associate_url(L"orcaslicer");
 
-        if (app_config->get("associate_gcode") == "true")
-            associate_files(L"gcode");
+            if (app_config->get("associate_gcode") == "true")
+                associate_files(L"gcode");
+        }
 #endif // __WXMSW__
 
         preset_updater = new PresetUpdater();
@@ -3621,92 +3670,97 @@ bool GUI_App::on_init_inner()
     } */
 
 
-    if (scrn) {
-        scrn->SetText(_L("Loading Plugins") + dots, 20);
-        wxYield();
-    }
-
-    // Initialize plugins after network then register on_load callbacks so once the plugin loads finish, it gets registered automatically.
-    // initialize() also installs the libslic3r hooks (capability resolver,
-    // slicing-pipeline dispatcher) via plugin_hooks::install() -- no
-    // per-capability wiring belongs here.
-    PluginManager& plugin_mgr = PluginManager::instance();
-    plugin_mgr.initialize();
-
-    // Set cloud plugin directory from previous session so cloud-installed
-    // plugins are discovered even before the network agent is ready.
-    const std::string preset_folder = app_config->get("preset_folder");
-    if (!preset_folder.empty()) {
-        plugin_mgr.set_cloud_user(preset_folder);
-    }
-
-    plugin_mgr.discover_plugins(false, true);
-
-    init_plugin_gui_wiring();
-
-    // Subscribe to the plugin loader and enumerate current actions (UI thread, once).
-    m_action_registry->init();
-
-    for (const std::string& plugin_key : plugin_mgr.get_enabled_plugin_keys()) {
-        if (!plugin_mgr.is_plugin_loaded(plugin_key)) {
-            plugin_mgr.load_plugin(plugin_key, false);
-            BOOST_LOG_TRIVIAL(info) << "Auto-loading plugin on startup: " << plugin_key;
+    // A disposable capture does not load plugins or start network services.
+    if (init_params->capture_workspace.empty()) {
+        if (scrn) {
+            scrn->SetText(_L("Loading Plugins") + dots, 20);
+            wxYield();
         }
-    }
 
-    copy_network_if_available();
-    on_init_network();
+        // Initialize plugins after network then register on_load callbacks so once the plugin loads finish, it gets registered automatically.
+        // initialize() also installs the libslic3r hooks (capability resolver,
+        // slicing-pipeline dispatcher) via plugin_hooks::install() -- no
+        // per-capability wiring belongs here.
+        PluginManager& plugin_mgr = PluginManager::instance();
+        plugin_mgr.initialize();
 
-    if (m_agent)
-        plugin_mgr.set_cloud_agent(std::dynamic_pointer_cast<OrcaCloudServiceAgent>(m_agent->get_cloud_agent()));
+        // Set cloud plugin directory from previous session so cloud-installed
+        // plugins are discovered even before the network agent is ready.
+        const std::string preset_folder = app_config->get("preset_folder");
+        if (!preset_folder.empty()) {
+            plugin_mgr.set_cloud_user(preset_folder);
+        }
 
-    if (m_agent && m_agent->is_user_login()) {
-        enable_user_preset_folder(true);
-        plugin_mgr.set_cloud_user(m_agent->get_user_id());
-        // Sync cloud plugin metadata off the UI thread; the network round trips took ~2 s of startup.
-        m_startup_cloud_plugin_fetch_thread = Slic3r::create_thread([this] {
-            std::vector<std::string> not_found, unauthorized;
-            try {
-                PluginManager::instance().fetch_plugins_from_cloud(&not_found, &unauthorized);
-            } catch (const std::exception& ex) {
-                BOOST_LOG_TRIVIAL(error) << "Startup cloud plugin fetch failed: " << ex.what();
-                return;
-            } catch (...) {
-                BOOST_LOG_TRIVIAL(error) << "Startup cloud plugin fetch failed";
-                return;
+        plugin_mgr.discover_plugins(false, true);
+
+        init_plugin_gui_wiring();
+
+        // Subscribe to the plugin loader and enumerate current actions (UI thread, once).
+        m_action_registry->init();
+
+        for (const std::string& plugin_key : plugin_mgr.get_enabled_plugin_keys()) {
+            if (!plugin_mgr.is_plugin_loaded(plugin_key)) {
+                plugin_mgr.load_plugin(plugin_key, false);
+                BOOST_LOG_TRIVIAL(info) << "Auto-loading plugin on startup: " << plugin_key;
             }
-            auto report = [this, not_found = std::move(not_found), unauthorized = std::move(unauthorized)] {
-                if (is_closing())
+        }
+
+        copy_network_if_available();
+        on_init_network();
+
+        if (m_agent)
+            plugin_mgr.set_cloud_agent(std::dynamic_pointer_cast<OrcaCloudServiceAgent>(m_agent->get_cloud_agent()));
+
+        if (m_agent && m_agent->is_user_login()) {
+            enable_user_preset_folder(true);
+            plugin_mgr.set_cloud_user(m_agent->get_user_id());
+            // Sync cloud plugin metadata off the UI thread; the network round trips took ~2 s of startup.
+            m_startup_cloud_plugin_fetch_thread = Slic3r::create_thread([this] {
+                std::vector<std::string> not_found, unauthorized;
+                try {
+                    PluginManager::instance().fetch_plugins_from_cloud(&not_found, &unauthorized);
+                } catch (const std::exception& ex) {
+                    BOOST_LOG_TRIVIAL(error) << "Startup cloud plugin fetch failed: " << ex.what();
                     return;
-                if (m_plugins_dlg)
-                    m_plugins_dlg->update_plugin_dialog_ui();
-                Plater* plater = this->plater();
-                if (plater == nullptr || m_agent == nullptr || !m_agent->is_user_login())
-                    return; // logged out meanwhile
-                for (const auto& uuid : not_found) {
-                    plater->get_notification_manager()->push_notification(
-                        NotificationType::CustomNotification,
-                        NotificationManager::NotificationLevel::RegularNotificationLevel,
-                        format(_L("Plugin %s is no longer available."), uuid));
+                } catch (...) {
+                    BOOST_LOG_TRIVIAL(error) << "Startup cloud plugin fetch failed";
+                    return;
                 }
-                for (const auto& uuid : unauthorized) {
-                    plater->get_notification_manager()->push_notification(
-                        NotificationType::CustomNotification,
-                        NotificationManager::NotificationLevel::RegularNotificationLevel,
-                        format(_L("Plugin %s access is unauthorized."), uuid));
-                }
-            };
-            // This can run in a splash wxYield() before the main window exists.
-            CallAfter([this, report = std::move(report)]() mutable {
-                if (m_post_initialized)
-                    report();
-                else
-                    m_startup_cloud_report = std::move(report);
+                auto report = [this, not_found = std::move(not_found), unauthorized = std::move(unauthorized)] {
+                    if (is_closing())
+                        return;
+                    if (m_plugins_dlg)
+                        m_plugins_dlg->update_plugin_dialog_ui();
+                    Plater* plater = this->plater();
+                    if (plater == nullptr || m_agent == nullptr || !m_agent->is_user_login())
+                        return; // logged out meanwhile
+                    for (const auto& uuid : not_found) {
+                        plater->get_notification_manager()->push_notification(
+                            NotificationType::CustomNotification,
+                            NotificationManager::NotificationLevel::RegularNotificationLevel,
+                            format(_L("Plugin %s is no longer available."), uuid));
+                    }
+                    for (const auto& uuid : unauthorized) {
+                        plater->get_notification_manager()->push_notification(
+                            NotificationType::CustomNotification,
+                            NotificationManager::NotificationLevel::RegularNotificationLevel,
+                            format(_L("Plugin %s access is unauthorized."), uuid));
+                    }
+                };
+                // This can run in a splash wxYield() before the main window exists.
+                CallAfter([this, report = std::move(report)]() mutable {
+                    if (m_post_initialized)
+                        report();
+                    else
+                        m_startup_cloud_report = std::move(report);
+                });
             });
-        });
+        } else {
+            enable_user_preset_folder(false);
+            plugin_mgr.set_cloud_user("");
+        }
     } else {
-        enable_user_preset_folder(false);
-        plugin_mgr.set_cloud_user("");
+        on_init_network();
     }
 
     // BBS if load user preset failed
@@ -3757,7 +3811,9 @@ bool GUI_App::on_init_inner()
     plater_->get_camera().select_view("topfront");
     plater_->get_camera().requires_zoom_to_bed = true;
     if (is_editor()) {
-        if (starts_on_prepare()) {
+        if (!init_params->capture_workspace.empty()) {
+            mainframe->select_prepare_for_gl_init();
+        } else if (starts_on_prepare()) {
             mainframe->select_tab(TAB_ID_PREPARE);
         } else {
             mainframe->select_tab(TAB_ID_HOME);
@@ -3826,7 +3882,8 @@ bool GUI_App::on_init_inner()
     update_mode(); // update view mode after fix of the object_list size
 
 #ifdef __APPLE__
-   other_instance_message_handler()->bring_instance_forward();
+    if (!is_workspace_capture())
+        other_instance_message_handler()->bring_instance_forward();
 #endif //__APPLE__
 
     Bind(EVT_HTTP_ERROR, &GUI_App::on_http_error, this);
@@ -3871,7 +3928,8 @@ bool GUI_App::on_init_inner()
 //#endif
             m_post_initialized = true;
 #ifdef WIN32
-            this->mainframe->register_win32_callbacks();
+            if (!is_workspace_capture())
+                this->mainframe->register_win32_callbacks();
 #endif
             this->post_init();
 
@@ -4038,6 +4096,17 @@ bool GUI_App::install_network_plugin_from_ota(bool& had_cache)
 
 bool GUI_App::on_init_network(bool try_backup)
 {
+    if (init_params != nullptr && !init_params->capture_workspace.empty()) {
+        // Native viewport construction needs empty managers, but must never
+        // start cloud agents or access an interactive user's credential store.
+        if (!m_device_manager)
+            m_device_manager = new Slic3r::DeviceManager();
+        if (!m_user_manager)
+            m_user_manager = new Slic3r::UserManager();
+        BOOST_LOG_TRIVIAL(info) << "Workspace capture uses offline GUI initialization";
+        return false;
+    }
+
     // Clean up stale ".old" files left by install_plugin() when it had to rename an in-use
     // DLL aside (see the rename-aside path in install_plugin). This runs before the plug-in
     // is (re)loaded - at startup nothing is mapped yet, and on a hot reload the previous
@@ -9603,12 +9672,13 @@ void GUI_App::OSXStoreOpenFiles(const wxArrayString &fileNames)
         app_config = nullptr;
         init_app_config();
     }*/
-    wxApp::OSXStoreOpenFiles(fileNames);
+    if (!is_workspace_capture())
+        wxApp::OSXStoreOpenFiles(fileNames);
 }
 
 void GUI_App::MacOpenURL(const wxString& url)
 {
-    if (url.empty())
+    if (is_workspace_capture() || url.empty())
         return;
     start_download(into_u8(url));
 }
@@ -9616,6 +9686,8 @@ void GUI_App::MacOpenURL(const wxString& url)
 // wxWidgets override to get an event on open files.
 void GUI_App::MacOpenFiles(const wxArrayString &fileNames)
 {
+    if (is_workspace_capture())
+        return;
     bool single_instance = app_config->get("app", "single_instance") == "true";
     if (m_post_initialized && !single_instance) {
         bool has3mf = false;

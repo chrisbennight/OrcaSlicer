@@ -590,12 +590,13 @@ public:
     bool belt_open_y() const;
     void open_belt_y(BoundingBoxf3 &box) const { if (this->belt_open_y()) { box.min.y() = -1e5; box.max.y() = 1e5; } }
 
-    void render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_body = false, bool force_background_color = false, HeightLimitMode mode = HEIGHT_LIMIT_NONE, int hover_id = -1, bool render_cali = false, bool show_grid = true, bool hide_chrome = false);
+    void render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_body = false, bool force_background_color = false, HeightLimitMode mode = HEIGHT_LIMIT_NONE, int hover_id = -1, bool render_cali = false, bool show_grid = true, bool hide_chrome = false, bool show_identifiers = true, bool show_surface = true);
 
     void set_selected();
     void set_unselected();
     void set_hover_id(int id) { m_hover_id = id; }
     const BoundingBoxf3& get_bounding_box(bool extended = false) { return extended ? m_extended_bounding_box : m_bounding_box; }
+    BoundingBoxf3 get_capture_bounding_box(bool show_surface, bool show_identifiers);
     const BoundingBox get_bounding_box_crd();
     BoundingBoxf3 get_plate_box() {return get_build_volume();}
     // The volume to place objects in. With use_share it is bounded by the area every extruder
@@ -1036,7 +1037,8 @@ public:
     int add_to_plate(int obj_id, int instance_id, int plate_id);
 
     //reload all objects
-    int reload_all_objects(bool except_locked = false, int plate_index = -1);
+    int reload_all_objects(bool except_locked = false, int plate_index = -1,
+                           bool preserve_plate_assignments = false);
 
     //reload objects for newly created plate
     int construct_objects_list_for_new_plate(int plate_index);
@@ -1060,7 +1062,7 @@ public:
 
     /*rendering related functions*/
     void on_change_color_mode(bool is_dark) { m_is_dark = is_dark; }
-    void render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current = false, bool only_body = false, int hover_id = -1, bool render_cali = false, bool show_grid = true, bool hide_chrome = false, bool hide_inactive = false);
+    void render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current = false, bool only_body = false, int hover_id = -1, bool render_cali = false, bool show_grid = true, bool hide_chrome = false, bool hide_inactive = false, const std::set<int>* visible_plates = nullptr, bool show_identifiers = true, bool show_surface = true, bool show_height_limits = true);
     void set_render_option(bool bedtype_texture, bool plate_settings);
     void set_render_cali(bool value = true) { render_cali_logo = value; }
     void render_hover_tooltip() const;

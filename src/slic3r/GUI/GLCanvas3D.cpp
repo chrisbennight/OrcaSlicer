@@ -69,6 +69,7 @@
 #ifdef SLIC3R_CAD
 #include "slic3r/GUI/CAD/DesignSketchTool.hpp"   // Design tab: interactive 2D sketch tool
 #endif
+#include "WorkspaceCapture.hpp"
 
 #include <igl/unproject.h>
 
@@ -3677,9 +3678,14 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
                     Vec3d clamped_pos, clamped_size;
                     WipeTowerRelocation relocation;
                     part_plate->estimate_wipe_tower_polygon(full_config, plate_id, clamped_pos, clamped_size, 0, false, &relocation);
-                    if (std::abs(x - (float) clamped_pos(0)) > EPSILON || std::abs(y - (float) clamped_pos(1)) > EPSILON) {
+                    const bool relocated = std::abs(x - (float) clamped_pos(0)) > EPSILON || std::abs(y - (float) clamped_pos(1)) > EPSILON;
+                    if (relocated) {
                         x = (float) clamped_pos(0);
                         y = (float) clamped_pos(1);
+                    }
+                    // Early capture refreshes must not change the coordinates
+                    // used to estimate the tower after restoring saved plates.
+                    if (relocated && !wxGetApp().is_workspace_capture()) {
                         ConfigOptionFloat wt_x_opt(x), wt_y_opt(y);
                         dynamic_cast<ConfigOptionFloats*>(proj_cfg.option("wipe_tower_x"))->set_at(&wt_x_opt, plate_id, 0);
                         dynamic_cast<ConfigOptionFloats*>(proj_cfg.option("wipe_tower_y"))->set_at(&wt_y_opt, plate_id, 0);
@@ -9649,7 +9655,48 @@ void GLCanvas3D::_render_plane() const
 }
 
 //BBS: add outline drawing logic
-void GLCanvas3D::_render_objects(GLVolumeCollection::ERenderType type, bool with_outline)
+const BoundingBoxf3& GLCanvas3D::workspace_bed_bounding_box() const
+{
+    return m_bed.extended_bounding_box();
+}
+
+void GLCanvas3D::render_workspace_bed()
+{
+    const Camera& camera = wxGetApp().plater()->get_camera();
+    _render_bed(camera.get_view_matrix(), camera.get_projection_matrix(), !camera.is_looking_downward(), false);
+}
+
+void GLCanvas3D::render_workspace_volumes(const std::function<bool(const GLVolume&)>& visible)
+{
+    if (wxGetApp().get_shader("gouraud") == nullptr)
+        throw WorkspaceCaptureUnavailable("Native model shader is unavailable");
+    std::vector<std::pair<bool, bool>> state;
+    state.reserve(m_volumes.volumes.size());
+    for (const GLVolume* volume : m_volumes.volumes)
+        state.emplace_back(volume->is_active, volume->selected);
+    auto all_volumes = m_volumes.volumes;
+    Slic3r::ScopeGuard restore_visibility([&]() {
+        m_volumes.volumes.swap(all_volumes);
+        for (size_t i = 0; i != state.size(); ++i) {
+            m_volumes.volumes[i]->is_active = state[i].first;
+            m_volumes.volumes[i]->selected = state[i].second;
+        }
+    });
+    // Native auxiliary passes also inspect the collection. Restrict the
+    // collection itself so excluded objects cannot leave sinking contours.
+    m_volumes.volumes.erase(std::remove_if(m_volumes.volumes.begin(), m_volumes.volumes.end(),
+        [&](const GLVolume* volume) { return !visible(*volume); }), m_volumes.volumes.end());
+    for (GLVolume* volume : m_volumes.volumes) {
+        volume->is_active = true;
+        volume->selected = false;
+    }
+    m_volumes.set_use_color_clip_plane(false);
+    m_volumes.set_color_clip_plane(Vec3d::Zero(), 0.);
+    _render_objects(GLVolumeCollection::ERenderType::Opaque, false, false);
+    _render_objects(GLVolumeCollection::ERenderType::Transparent, false, false);
+}
+
+void GLCanvas3D::_render_objects(GLVolumeCollection::ERenderType type, bool with_outline, bool with_imex_ghosts)
 {
     if (m_volumes.empty())
         return;
@@ -9713,7 +9760,7 @@ void GLCanvas3D::_render_objects(GLVolumeCollection::ERenderType type, bool with
     if (_is_xray_view_active()) {
         if (type == GLVolumeCollection::ERenderType::Opaque)
             _render_xray_volumes();
-        else
+        else if (with_imex_ghosts)
             _render_imex_ghosts_xray();
         m_camera_clipping_plane = ClippingPlane::ClipsNothing();
         return;
@@ -9845,7 +9892,8 @@ void GLCanvas3D::_render_objects(GLVolumeCollection::ERenderType type, bool with
                 partly_inside_enable, printable_heights);
             // IMEX ghosts are transparent and share the same shader/camera state;
             // render them right after the main transparent pass while the shader is still bound.
-            _render_imex_ghosts();
+            if (with_imex_ghosts)
+                _render_imex_ghosts();
             break;
         }
         }

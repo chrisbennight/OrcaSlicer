@@ -89,6 +89,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/CaliHistoryDialog.hpp
     GUI/Camera.cpp
     GUI/Camera.hpp
+    GUI/WorkspaceCapture.cpp
+    GUI/WorkspaceCapture.hpp
     GUI/CameraPopup.cpp
     GUI/CameraPopup.hpp
     GUI/CameraUtils.cpp

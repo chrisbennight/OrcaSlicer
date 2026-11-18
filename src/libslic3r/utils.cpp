@@ -530,6 +530,13 @@ void flush_logs()
 	return;
 }
 
+void close_log_file()
+{
+    auto sink = std::move(g_log_sink);
+    if (sink)
+        logging::core::get()->remove_sink(sink);
+}
+
 // ORCA
 boost::filesystem::path get_log_file_name()
 {

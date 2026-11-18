@@ -8348,7 +8348,8 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
     // BBS: save project confirm
     up_to_date(true, false);
     up_to_date(true, true);
-    model.set_need_backup();
+    if (!wxGetApp().is_workspace_capture())
+        model.set_need_backup();
 
     // BBS: restore project
     if (wxGetApp().is_editor()) {
@@ -8404,7 +8405,8 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
     this->q->Bind(EVT_INSTANCE_GO_TO_FRONT, [this](InstanceGoToFrontEvent &) {
         bring_instance_forward();
     });
-    wxGetApp().other_instance_message_handler()->init(this->q);
+    if (!wxGetApp().is_workspace_capture())
+        wxGetApp().other_instance_message_handler()->init(this->q);
 
     // collapse sidebar according to saved value
     //if (wxGetApp().is_editor()) {
@@ -9005,6 +9007,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
     bool load_config = strategy & LoadStrategy::LoadConfig;
     bool imperial_units = strategy & LoadStrategy::ImperialUnits;
     bool silence = strategy & LoadStrategy::Silence;
+    const bool workspace_capture = wxGetApp().is_workspace_capture();
 
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": load_model %1%, load_config %2%, input_files size %3%")%load_model %load_config %input_files.size();
 
@@ -9083,7 +9086,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
         Slic3r::Model model;
         // BBS: add auxiliary files related logic
         bool load_aux = strategy & LoadStrategy::LoadAuxiliary, load_old_project = false;
-        if (load_model && load_config && type_3mf) {
+        if (load_model && load_config && type_3mf && !workspace_capture) {
             load_aux = true;
             strategy = strategy | LoadStrategy::LoadAuxiliary;
         }
@@ -9123,6 +9126,16 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                                                                  if (cancel)
                                                                      is_user_cancel = cancel;
                                                              });
+                    if (load_config && plate_data.size() > PartPlateList::MAX_PLATES_COUNT) {
+                        release_PlateData_list(plate_data);
+                        for (auto* preset : project_presets)
+                            delete preset;
+                        q->skip_thumbnail_invalid = false;
+                        BOOST_LOG_TRIVIAL(error) << "Project exceeds the plate limit";
+                        if (!workspace_capture)
+                            show_error(q, _L("The project exceeds the supported number of plates."));
+                        return empty_result;
+                    }
                           BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ":" << __LINE__
                                       << boost::format(", plate_data.size %1%, project_preset.size %2%, is_bbs_or_orca_3mf %3%, file_version %4% \n") % plate_data.size() %
                                           project_presets.size() % (en_3mf_file_type == En3mfType::From_BBS || en_3mf_file_type == En3mfType::From_Orca) % file_version.to_string();
@@ -9267,7 +9280,8 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ":" << __LINE__
                                                 << " "
                                                 << boost::format("3MF import message [%1%]: %2% | file: %3%") % into_u8(title) % into_u8(text) % path.string();
-                        show_info(q, text, title);
+                        if (!workspace_capture)
+                            show_info(q, text, title);
                     };
                     auto skip_project_config = [&](const wxString& geometry_msg) {
                         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ":" << __LINE__
@@ -9279,6 +9293,8 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                             log_and_show_3mf_info(geometry_msg, load_3mf_title);
                     };
                     auto migrate_2_3_1_alpha_rotate_template = [&]() {
+                        if (workspace_capture)
+                            return;
                         auto* rotate_template = config_loaded.option<ConfigOptionString>("sparse_infill_rotate_template");
                         if (rotate_template == nullptr || rotate_template->value.empty())
                             return;
@@ -9411,6 +9427,8 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                         Semver old_version(1, 5, 9);
                         // A published 3MF has no project config to migrate: skip the old-version
                         // translations even if a slicer tag slipped through classification.
+                        // Legacy projects use a different plate grid. Convert the
+                        // grid spacing while preserving plate-local placement.
                         if ((en_3mf_file_type == En3mfType::From_BBS || en_3mf_file_type == En3mfType::From_Orca) && (file_version < old_version) && !published_config.published && load_model && load_config && !config_loaded.empty()) {
                             translate_old = true;
                             partplate_list.get_plate_size(current_width, current_depth, current_height);
@@ -9442,7 +9460,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                         PresetsConfigSubstitutions preset_substitutions;
                         PresetBundle &             preset_bundle = *wxGetApp().preset_bundle;
                         preset_substitutions                     = preset_bundle.load_project_embedded_presets(project_presets, ForwardCompatibilitySubstitutionRule::Enable);
-                        if (is_bambu_studio_project)
+                        if (is_bambu_studio_project || workspace_capture)
                             log_substitutions(preset_substitutions, path.string());
                         else if (!preset_substitutions.empty())
                             show_substitutions_info(preset_substitutions);
@@ -9484,7 +9502,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                         }
                     }
                     // BambuStudio projects routinely carry values Orca replaces; log them rather than showing a dialog on every open.
-                    if (is_bambu_studio_project)
+                    if (is_bambu_studio_project || workspace_capture)
                         log_substitutions(config_substitutions.substitutions, path.string());
                     else if (!config_substitutions.empty())
                         show_substitutions_info(config_substitutions.substitutions, filename.string());
@@ -9897,6 +9915,11 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
             continue;
         }
 
+        if (workspace_capture && !is_project_file) {
+            BOOST_LOG_TRIVIAL(error) << "Workspace capture requires an imported project layout";
+            q->skip_thumbnail_invalid = false;
+            return empty_result;
+        }
         progress_percent = 100.0f * (float)i / (float)total_files + INIT_MODEL_RATIO * 100.0f / (float)total_files;
         dlg_cont = dlg.Update(progress_percent);
         if (!dlg_cont) {
@@ -9999,7 +10022,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                 return empty_result;
             }
 
-            if (!model_object->instances.empty())
+            if (!workspace_capture && !model_object->instances.empty())
                 model_object->ensure_on_bed(is_project_file);
         }
 
@@ -10176,6 +10199,8 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
 
     //BBS: translate old 3mf to correct positions
     if (translate_old) {
+        if (workspace_capture)
+            partplate_list.reload_all_objects(false, -1, true);
         //translate the objects
         int plate_count = partplate_list.get_plate_count();
         for (int index = 1; index < plate_count; index ++) {
@@ -10194,7 +10219,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
     //BBS: add gcode loading logic in the end
     q->m_exported_file = false;
     q->skip_thumbnail_invalid = false;
-    if (load_model && load_config) {
+    if (load_model && load_config && !workspace_capture) {
         if (model.objects.empty()) {
             partplate_list.load_gcode_files();
             PartPlate * first_plate = nullptr, *cur_plate = nullptr;
@@ -10319,6 +10344,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
 
 std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& model_objects, bool allow_negative_z, bool split_object, bool auto_drop)
 {
+    const bool workspace_capture = wxGetApp().is_workspace_capture();
     const Vec3d bed_size = Slic3r::to_3d(this->bed.build_volume().bounding_volume2d().size(), 1.0) - 2.0 * Vec3d::Ones();
 
 #ifndef AUTOPLACEMENT_ON_LOAD
@@ -10332,6 +10358,8 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
     ModelInstancePtrs new_instances;
 #endif /* AUTOPLACEMENT_ON_LOAD */
     for (ModelObject *model_object : model_objects) {
+        if (workspace_capture && model_object->instances.empty())
+            continue;
         auto *object = model.add_object(*model_object);
         object->sort_volumes(true);
         std::string object_name = object->name.empty() ? fs::path(object->input_file).filename().string() : object->name;
@@ -10360,6 +10388,11 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
             const Vec3d size = object->instance_bounding_box(i).size();
             const Vec3d ratio = size.cwiseQuotient(bed_size);
             const double max_ratio = std::max(ratio(0), ratio(1));
+            if (workspace_capture) {
+                if (max_ratio > 10000)
+                    throw Slic3r::RuntimeError("Workspace capture cannot represent the saved object scale");
+                continue;
+            }
             if (max_ratio > 10000) {
                 MessageDialog dlg(q, _L("Your object appears to be too large, do you want to scale it down to fit the print bed automatically?"), _L("Object too large"),
                                   wxICON_QUESTION | wxYES);
@@ -10383,14 +10416,14 @@ std::vector<size_t> Plater::priv::load_model_objects(const ModelObjectPtrs& mode
             }
         }
 
-        if (!auto_drop) {
+        if (!workspace_capture && !auto_drop) {
             object->auto_drop = false;
 
             // if under the bed, move over the bed
             double dist_to_bed = std::min(object->min_z(), double(0));
             object->translate_instances(Vec3d(0, 0, -dist_to_bed));
         }
-        else {
+        else if (!workspace_capture) {
             object->ensure_on_bed(allow_negative_z);
         }
 
@@ -21810,6 +21843,8 @@ void Plater::set_bed_shape() const
         }
     }
     const ConfigOptionPoints *bed_exclude_area = p->config->option<ConfigOptionPoints>("bed_exclude_area");
+    const bool workspace_capture = wxGetApp().is_workspace_capture();
+    const std::string& custom_texture = p->config->option<ConfigOptionString>("bed_custom_texture")->value;
     set_bed_shape(p->config->option<ConfigOptionPoints>("printable_area")->values,
         //BBS: add bed exclude areas
         bed_exclude_area->values,
@@ -21817,8 +21852,8 @@ void Plater::set_bed_shape() const
         p->config->option<ConfigOptionFloat>("printable_height")->value,
         p->config->option<ConfigOptionPointsGroups>("extruder_printable_area")->values,
         p->config->option<ConfigOptionFloatsNullable>("extruder_printable_height")->values,
-        p->config->option<ConfigOptionString>("bed_custom_texture")->value.empty() ? texture_filename : p->config->option<ConfigOptionString>("bed_custom_texture")->value,
-        p->config->option<ConfigOptionString>("bed_custom_model")->value);
+        workspace_capture || custom_texture.empty() ? texture_filename : custom_texture,
+        workspace_capture ? std::string{} : p->config->option<ConfigOptionString>("bed_custom_model")->value);
 }
 
 //BBS: add bed exclude area

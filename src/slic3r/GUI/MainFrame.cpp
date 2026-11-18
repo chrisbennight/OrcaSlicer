@@ -1403,7 +1403,8 @@ void MainFrame::shutdown()
     // Stop the background thread of the removable drive manager, so that no new updates will be sent to the Plater.
     //wxGetApp().removable_drive_manager()->shutdown();
 	//stop listening for messages from other instances
-	wxGetApp().other_instance_message_handler()->shutdown(this);
+	if (!wxGetApp().is_workspace_capture())
+		wxGetApp().other_instance_message_handler()->shutdown(this);
     // Save the slic3r.ini.Usually the ini file is saved from "on idle" callback,
     // but in rare cases it may not have been called yet.
     if(wxGetApp().app_config->dirty())

@@ -1167,6 +1167,9 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
         bool m_load_model = false;
         bool m_load_aux = false;
         bool m_load_config = false;
+        bool m_load_sliced_files = true;
+        bool m_load_editable_attachments = true;
+        bool m_preserve_plate_assignments = false;
         // backup & restore
         bool m_load_restore = false;
         std::string m_backup_path;
@@ -1492,6 +1495,9 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
         m_load_aux = strategy & LoadStrategy::LoadAuxiliary;
         m_load_restore = strategy & LoadStrategy::Restore;
         m_load_config = strategy & LoadStrategy::LoadConfig;
+        m_load_sliced_files = !(strategy & LoadStrategy::SkipSlicedFiles);
+        m_load_editable_attachments = !(strategy & LoadStrategy::SkipEditableAttachments);
+        m_preserve_plate_assignments = strategy & LoadStrategy::PreservePlateAssignments;
         m_model = &model;
         m_unit_factor = 1.0f;
         m_curr_object = nullptr;
@@ -2043,8 +2049,9 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                     // extract slic3r print config file
                     _extract_project_config_from_archive(archive, stat, config, config_substitutions, model);
                 }
-                else if (boost::algorithm::iequals(name, ORCA_CAD_RECIPE_FILE)
-                      || boost::algorithm::iequals(name, LEGACY_CAD_RECIPE_FILE)) {
+                else if (m_load_editable_attachments
+                      && (boost::algorithm::iequals(name, ORCA_CAD_RECIPE_FILE)
+                          || boost::algorithm::iequals(name, LEGACY_CAD_RECIPE_FILE))) {
                     // Restore the editable CAD recipe (optional; absent in non-CAD projects).
                     // The current name wins over the legacy one whichever the archive lists
                     // first, and the size the archive claims is capped before it is allocated.
@@ -2059,7 +2066,7 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                             model.cad_recipe = std::move(buf);
                     }
                 }
-                else if (boost::algorithm::iequals(name, CUT_INFORMATION_FILE)) {
+                else if (m_load_editable_attachments && boost::algorithm::iequals(name, CUT_INFORMATION_FILE)) {
                     // extract object cut info
                     _extract_cut_information_from_archive(archive, stat, config_substitutions);
                 }
@@ -2093,23 +2100,23 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                         }
                     }
                 }
-                else if (_is_svg_shape_file(name)) {
+                else if (m_load_editable_attachments && _is_svg_shape_file(name)) {
                     _extract_embossed_svg_shape_file(name, archive, stat);
                 }
-                else if (boost::algorithm::istarts_with(name, TEXTURE_DISPLACEMENT_DIR)) {
+                else if (m_load_editable_attachments && boost::algorithm::istarts_with(name, TEXTURE_DISPLACEMENT_DIR)) {
                     std::string contents(stat.m_uncomp_size, '\0');
                     if (mz_zip_reader_extract_to_mem(&archive, stat.m_file_index, contents.data(), stat.m_uncomp_size, 0))
                         m_texture_displacement_files.emplace(name, std::move(contents));
                     else
                         add_error("Error while reading texture displacement data");
                 }
-                else if (!dont_load_config && boost::algorithm::iequals(name, SLICE_INFO_CONFIG_FILE)) {
+                else if (!dont_load_config && m_load_sliced_files && boost::algorithm::iequals(name, SLICE_INFO_CONFIG_FILE)) {
                     m_parsing_slice_info = true;
                     //extract slice info from archive
                     _extract_xml_from_archive(archive, stat, _handle_start_config_xml_element, _handle_end_config_xml_element);
                     m_parsing_slice_info = false;
                 }
-                else if (!dont_load_config && boost::algorithm::iequals(name, FILAMENT_SEQUENCE_FILE)) {
+                else if (!dont_load_config && m_load_sliced_files && boost::algorithm::iequals(name, FILAMENT_SEQUENCE_FILE)) {
                     _extract_filament_sequence_from_archive(archive, stat);
                 }
                 else if (boost::algorithm::istarts_with(name, AUXILIARY_DIR)) {
@@ -2117,15 +2124,15 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
                     if (m_load_aux && !m_load_restore)
                         _extract_auxiliary_file_from_archive(archive, stat, model);
                 }
-                else if (!dont_load_config && boost::algorithm::istarts_with(name, METADATA_DIR) && boost::algorithm::iends_with(name, GCODE_EXTENSION)) {
+                else if (!dont_load_config && m_load_sliced_files && boost::algorithm::istarts_with(name, METADATA_DIR) && boost::algorithm::iends_with(name, GCODE_EXTENSION)) {
                     //load gcode files
                     _extract_file_from_archive(archive, stat);
                 }
-                else if (!dont_load_config && boost::algorithm::istarts_with(name, METADATA_DIR) && boost::algorithm::iends_with(name, THUMBNAIL_EXTENSION)) {
+                else if (!dont_load_config && m_load_sliced_files && boost::algorithm::istarts_with(name, METADATA_DIR) && boost::algorithm::iends_with(name, THUMBNAIL_EXTENSION)) {
                     //BBS parsing pattern thumbnail and plate thumbnails
                     _extract_file_from_archive(archive, stat);
                 }
-                else if (!dont_load_config && boost::algorithm::istarts_with(name, METADATA_DIR) && boost::algorithm::iends_with(name, CALIBRATION_INFO_EXTENSION)) {
+                else if (!dont_load_config && m_load_sliced_files && boost::algorithm::istarts_with(name, METADATA_DIR) && boost::algorithm::iends_with(name, CALIBRATION_INFO_EXTENSION)) {
                     //BBS parsing pattern config files
                     _extract_file_from_archive(archive, stat);
                 }
@@ -2457,46 +2464,52 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
             plate_data_list[it->first-1]->pattern_bbox_file = (m_load_restore || it->second->pattern_bbox_file.empty()) ? it->second->pattern_bbox_file : m_backup_path + "/" + it->second->pattern_bbox_file;
             plate_data_list[it->first-1]->config = it->second->config;
 
-            current_plate_data = plate_data_list[it->first - 1];
+            const int source_plate_index = it->first - 1;
+            const PlateData* parsed_plate = it->second;
+            current_plate_data = plate_data_list[source_plate_index];
             BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ":" << __LINE__ << boost::format(", plate %1%, thumbnail_file=%2%, no_light_thumbnail_file=%3%")%it->first %plate_data_list[it->first-1]->thumbnail_file %plate_data_list[it->first-1]->no_light_thumbnail_file;
             BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ":" << __LINE__ << boost::format(", top_thumbnail_file=%1%, pick_thumbnail_file=%2%")%plate_data_list[it->first-1]->top_file %plate_data_list[it->first-1]->pick_file;
             it++;
 
-            //update the arrange order
-            std::map<int, std::pair<int, int>>::iterator map_it = current_plate_data->obj_inst_map.begin();
-            while (map_it != current_plate_data->obj_inst_map.end()) {
-                int obj_index, obj_id = map_it->first, inst_index = map_it->second.first;
-                IndexToPathMap::iterator index_iter = m_index_paths.find(obj_id);
+            const auto find_instance = [&](int obj_id, int inst_index) -> ModelInstance* {
+                const auto index_iter = m_index_paths.find(obj_id);
                 if (index_iter == m_index_paths.end()) {
                     BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << ":" << __LINE__
                         << boost::format(", can not find object from plate's obj_map, id=%1%, skip this object")%obj_id;
-                    map_it++;
-                    continue;
+                    return nullptr;
                 }
                 Id temp_id = std::make_pair(index_iter->second, index_iter->first);
-                IdToModelObjectMap::iterator object_item = m_objects.find(temp_id);
+                const auto object_item = m_objects.find(temp_id);
                 if (object_item == m_objects.end()) {
                     BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << ":" << __LINE__
                         << boost::format(", can not find object from plate's obj_map, ID <%1%, %2%>, skip this object")%index_iter->second %index_iter->first;
-                    map_it++;
-                    continue;
+                    return nullptr;
                 }
-                obj_index = object_item->second;
+                const int obj_index = object_item->second;
 
-                if (obj_index >= m_model->objects.size()) {
+                if (obj_index < 0 || static_cast<size_t>(obj_index) >= m_model->objects.size()) {
                     BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << ":" << __LINE__ << boost::format("invalid object id %1%\n")%obj_index;
-                    map_it++;
-                    continue;
+                    return nullptr;
                 }
                 ModelObject* obj =  m_model->objects[obj_index];
-                if (inst_index >= obj->instances.size()) {
+                if (inst_index < 0 || static_cast<size_t>(inst_index) >= obj->instances.size()) {
                     BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << ":" << __LINE__ << boost::format("invalid instance id %1%\n")%inst_index;
-                    map_it++;
-                    continue;
+                    return nullptr;
                 }
-                ModelInstance* inst =  obj->instances[inst_index];
-                inst->loaded_id = map_it->second.second;
-                map_it++;
+                return obj->instances[inst_index];
+            };
+            for (const auto& [obj_id, instance_ids] : current_plate_data->obj_inst_map) {
+                if (auto* inst = find_instance(obj_id, instance_ids.first))
+                    inst->loaded_id = instance_ids.second;
+            }
+            for (const auto& [obj_id, inst_index] : parsed_plate->objects_and_instances) {
+                if (auto* inst = find_instance(obj_id, inst_index)) {
+                    if (inst->source_plate_index >= 0 && inst->source_plate_index != source_plate_index) {
+                        add_error("Workspace capture found an instance assigned to multiple plates");
+                        return false;
+                    }
+                    inst->source_plate_index = source_plate_index;
+                }
             }
         }
 
@@ -3355,6 +3368,8 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
     // picking the texture again rather than a hard failure.
     void _BBS_3MF_Importer::_apply_texture_displacement(ModelVolume &volume, const std::string &json_path)
     {
+        if (!m_load_editable_attachments)
+            return;
         const auto json = m_texture_displacement_files.find(json_path);
         if (json == m_texture_displacement_files.end()) {
             add_error("Missing texture displacement data: " + json_path);
@@ -5000,6 +5015,8 @@ void PlateData::parse_filament_info(GCodeProcessorResult *result)
         }
 
         m_curr_plater->obj_inst_map.emplace(m_curr_instance.object_id, std::make_pair(m_curr_instance.instance_id, m_curr_instance.identify_id));
+        if (m_preserve_plate_assignments && !m_parsing_slice_info)
+            m_curr_plater->objects_and_instances.emplace_back(m_curr_instance.object_id, m_curr_instance.instance_id);
         m_curr_instance.object_id = m_curr_instance.instance_id = -1;
         m_curr_instance.identify_id = 0;
         return true;

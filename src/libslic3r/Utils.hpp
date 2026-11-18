@@ -227,6 +227,7 @@ std::string debug_out_path(const char *name, ...);
 void set_log_path_and_level(const std::string& file, unsigned int level);
 void flush_logs();
 void shutdown_console_logging();
+void close_log_file();
 boost::filesystem::path get_log_file_name();
 
 // A special type for strings encoded in the local Windows 8-bit code page.

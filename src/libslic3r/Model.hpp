@@ -1433,6 +1433,8 @@ public:
     bool use_loaded_id_for_label {false};
     int arrange_order = 0; // BBS
     size_t loaded_id = 0; // BBS
+    // Saved plate for a disposable layout import. A negative value leaves placement inferred.
+    int source_plate_index = -1;
 
     size_t get_labeled_id() const
     {

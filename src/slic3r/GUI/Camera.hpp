@@ -103,7 +103,7 @@ public:
     double get_zoom() const { return m_zoom; }
     double get_inv_zoom() const { assert(m_zoom != 0.0); return 1.0 / m_zoom; }
     void update_zoom(double delta_zoom) { set_zoom(m_zoom / (1.0 - std::max(std::min(delta_zoom, 4.0), -4.0) * ZoomUnit)); }
-    void set_zoom(double zoom);
+    void set_zoom(double zoom, bool clamp_minimum = true);
 
     const BoundingBoxf3& get_scene_box() const { return m_scene_box; }
     void set_scene_box(const BoundingBoxf3& box) { m_scene_box = box; }
@@ -142,7 +142,7 @@ public:
     void apply_viewport() const;
     // Calculates and applies the projection matrix tighting the frustrum z range around the given box.
     // If larger z span is needed, pass the desired values of near and far z (negative values are ignored)
-    void apply_projection(const BoundingBoxf3& box, double near_z = -1.0, double far_z = -1.0);
+    bool apply_projection(const BoundingBoxf3& box, double near_z = -1.0, double far_z = -1.0);
 
     void apply_projection(double left, double right, double bottom, double top, double near_z, double far_z);
 

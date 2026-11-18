@@ -786,6 +786,18 @@ jobs:
           name: OrcaSlicer_Linux_ubuntu_${{ env.ubuntu-ver }}${{ env.arch_suffix }}_${{ env.ver }}
           path: "./build/OrcaSlicer_Linux_AppImage${{ env.ubuntu-ver-str }}${{ env.arch_suffix }}_${{ env.ver }}.AppImage"
 
+      - name: Verify native workspace capture
+        if: runner.os == 'Linux' && inputs.arch != 'aarch64' && github.repository == 'chrisbennight/OrcaSlicer' && (github.base_ref == 'printable-2.5.1' || github.ref == 'refs/heads/printable-2.5.1')
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          sudo apt-get install -y --no-install-recommends xvfb xauth libgl1-mesa-dri python3-pil
+          test_dir=$(mktemp -d)
+          trap 'rm -rf "$test_dir"' EXIT
+          appimage="$GITHUB_WORKSPACE/build/OrcaSlicer_Linux_AppImage${{ env.ubuntu-ver-str }}_${{ env.ver }}.AppImage"
+          (cd "$test_dir" && "$appimage" --appimage-extract >/dev/null)
+          /usr/bin/python3 tests/native_workspace_capture_smoke.py "$test_dir/squashfs-root/AppRun"
+
       - name: Upload OrcaSlicer_profile_validator Ubuntu
         if: ${{ ! env.ACT && runner.os == 'Linux' && !vars.SELF_HOSTED && inputs.arch != 'aarch64' }}
         uses: actions/upload-artifact@v7

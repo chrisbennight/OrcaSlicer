@@ -5328,7 +5328,25 @@ bool PartPlate::intersects(const BoundingBoxf3& bb) const
 	return print_volume.intersects(bb);
 }
 
-void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_body, bool force_background_color, HeightLimitMode mode, int hover_id, bool render_cali, bool show_grid, bool hide_chrome)
+BoundingBoxf3 PartPlate::get_capture_bounding_box(bool show_surface, bool show_identifiers)
+{
+    BoundingBoxf3 bounds;
+    if (show_surface)
+        bounds.merge(m_bounding_box);
+    if (show_identifiers) {
+        if (!m_plate_idx_icon.is_initialized())
+            calc_vertex_for_number(0, false, m_plate_idx_icon);
+        if (m_plate_name_edit_icon.mesh_raycaster == nullptr)
+            generate_plate_name_texture();
+        if (!m_plate_idx_icon.is_initialized() || !m_plate_name_icon.is_initialized() || m_name_texture.get_id() == 0)
+            throw std::runtime_error("Native plate identifier geometry is unavailable");
+        bounds.merge(m_plate_idx_icon.get_bounding_box());
+        bounds.merge(m_plate_name_icon.get_bounding_box());
+    }
+    return bounds;
+}
+
+void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_body, bool force_background_color, HeightLimitMode mode, int hover_id, bool render_cali, bool show_grid, bool hide_chrome, bool show_identifiers, bool show_surface)
 {
     glsafe(::glEnable(GL_DEPTH_TEST));
 
@@ -5341,7 +5359,7 @@ void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projec
         shader->set_uniform("view_model_matrix", view_matrix);
         shader->set_uniform("projection_matrix", projection_matrix);
 
-        if (!bottom) {
+        if (!bottom && show_surface) {
             // draw background
             render_background(force_background_color);
 
@@ -5378,20 +5396,20 @@ void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projec
         shader->stop_using();
     }
 
-    if (wxGetApp().show_plate_gridlines() && show_grid) {
+    if (show_surface && wxGetApp().show_plate_gridlines() && show_grid) {
         glsafe(::glDepthMask(bottom ? GL_TRUE : GL_FALSE));
         render_grid(bottom);
         glsafe(::glDepthMask(GL_TRUE));
     }
 
-    if (!hide_chrome && !bottom && m_selected && !force_background_color) {
+    if (show_surface && !hide_chrome && !bottom && m_selected && !force_background_color) {
         if (m_partplate_list)
             render_logo(bottom, m_partplate_list->render_cali_logo && render_cali);
         else
             render_logo(bottom);
     }
 
-    if (!hide_chrome) {
+    if (!hide_chrome && show_identifiers) {
         render_icons(bottom, only_body, hover_id);
         if (!force_background_color) {
             render_only_numbers(bottom);
@@ -6866,6 +6884,9 @@ void PartPlateList::delete_selected_plate()
 
 bool PartPlateList::check_all_plate_local_bed_type(const std::vector<BedType> &cur_bed_types)
 {
+    // Layout capture keeps authored plate settings when the sidebar refreshes.
+    if (m_plater && wxGetApp().is_workspace_capture())
+        return true;
     std::string bed_type_key = "curr_bed_type";
     bool        is_ok        = true;
     for (int i = 0; i < m_plate_list.size(); i++) {
@@ -7491,7 +7512,7 @@ int PartPlateList::add_to_plate(int obj_id, int instance_id, int plate_id)
 }
 
 //reload all objects
-int PartPlateList::reload_all_objects(bool except_locked, int plate_index)
+int PartPlateList::reload_all_objects(bool except_locked, int plate_index, bool preserve_plate_assignments)
 {
 	int ret = 0;
 	unsigned int i, j, k;
@@ -7507,6 +7528,12 @@ int PartPlateList::reload_all_objects(bool except_locked, int plate_index)
 		{
 			ModelInstance* instance = object->instances[j];
 			BoundingBoxf3 boundingbox = object->instance_convex_hull_bounding_box(j);
+			if (preserve_plate_assignments && instance->source_plate_index >= 0) {
+				if (PartPlate* source_plate = get_plate(instance->source_plate_index)) {
+					source_plate->add_instance(i, j, false, &boundingbox);
+					continue;
+				}
+			}
 			for (k = 0; k < (unsigned int)m_plate_list.size(); ++k)
 			{
 				PartPlate* plate = m_plate_list[k];
@@ -7947,7 +7974,7 @@ void PartPlateList::postprocess_arrange_polygon(arrangement::ArrangePolygon& arr
 
 /*rendering related functions*/
 //render
-void PartPlateList::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current, bool only_body, int hover_id, bool render_cali, bool show_grid, bool hide_chrome, bool hide_inactive)
+void PartPlateList::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current, bool only_body, int hover_id, bool render_cali, bool show_grid, bool hide_chrome, bool hide_inactive, const std::set<int>* visible_plates, bool show_identifiers, bool show_surface, bool show_height_limits)
 {
 	const std::lock_guard<std::mutex> local_lock(m_plates_mutex);
 	std::vector<PartPlate*>::iterator it = m_plate_list.begin();
@@ -7962,20 +7989,22 @@ void PartPlateList::render(const Transform3d& view_matrix, const Transform3d& pr
 	load_icon_textures();
 	for (it = m_plate_list.begin(); it != m_plate_list.end(); it++) {
 		int current_index = (*it)->get_index();
+		if (visible_plates && visible_plates->count(current_index) == 0)
+			continue;
 		if ((only_current || hide_inactive) && (current_index != m_current_plate))
 			continue;
 		if (current_index == m_current_plate) {
-			PartPlate::HeightLimitMode height_mode = (only_current)?PartPlate::HEIGHT_LIMIT_NONE:m_height_limit_mode;
+			PartPlate::HeightLimitMode height_mode = (only_current || !show_height_limits)?PartPlate::HEIGHT_LIMIT_NONE:m_height_limit_mode;
 			if (plate_hover_index == current_index)
-                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, plate_hover_action, render_cali, show_grid, hide_chrome);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, plate_hover_action, render_cali, show_grid, hide_chrome, show_identifiers, show_surface);
 			else
-                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, -1, render_cali, show_grid, hide_chrome);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, -1, render_cali, show_grid, hide_chrome, show_identifiers, show_surface);
 		}
 		else {
 			if (plate_hover_index == current_index)
-				(*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, plate_hover_action, render_cali, show_grid, hide_chrome);
+				(*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, plate_hover_action, render_cali, show_grid, hide_chrome, show_identifiers, show_surface);
 			else
-                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, -1, render_cali, show_grid, hide_chrome);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, -1, render_cali, show_grid, hide_chrome, show_identifiers, show_surface);
 		}
 	}
 }
@@ -8547,11 +8576,19 @@ int PartPlateList::load_from_3mf_structure(PlateDataPtrs& plate_data_list, int f
 		BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(":no plates, should not happen!");
 		return -1;
 	}
+	if (plate_data_list.size() > MAX_PLATES_COUNT) {
+		BOOST_LOG_TRIVIAL(error) << "Project exceeds the plate limit";
+		return -1;
+	}
+	const bool workspace_capture = m_plater && wxGetApp().is_workspace_capture();
+	const bool load_preview_files = m_plater && !workspace_capture;
 	clear(true, true);
 	set_filament_count(filament_count);
 	for (unsigned int i = 0; i < (unsigned int)plate_data_list.size(); ++i)
 	{
 		int index = create_plate(false);
+		if (index < 0)
+			return -1;
 		m_plate_list[index]->m_locked = plate_data_list[i]->locked;
 		m_plate_list[index]->config()->apply(plate_data_list[i]->config);
 		m_plate_list[index]->set_plate_name(plate_data_list[i]->plate_name);
@@ -8565,7 +8602,7 @@ int PartPlateList::load_from_3mf_structure(PlateDataPtrs& plate_data_list, int f
 		//just test for file correct or not, we will rebuild later
 		/*for (std::vector<std::pair<int, int>>::iterator it = plate_data_list[i]->objects_and_instances.begin(); it != plate_data_list[i]->objects_and_instances.end(); ++it)
 			m_plate_list[index]->obj_to_instance_set.insert(std::pair(it->first, it->second));*/
-		if (!plate_data_list[i]->gcode_file.empty()) {
+		if (!workspace_capture && !plate_data_list[i]->gcode_file.empty()) {
 			m_plate_list[index]->m_gcode_path_from_3mf = plate_data_list[i]->gcode_file;
 		}
 		GCodeResult* gcode_result = nullptr;
@@ -8649,7 +8686,7 @@ int PartPlateList::load_from_3mf_structure(PlateDataPtrs& plate_data_list, int f
             else
                 gcode_result->nozzle_group_result = nullptr;
         }
-		if (m_plater && !plate_data_list[i]->thumbnail_file.empty()) {
+		if (load_preview_files && !plate_data_list[i]->thumbnail_file.empty()) {
 			BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": plate %1%, load thumbnail from %2%.")%(i+1) %plate_data_list[i]->thumbnail_file;
 			if (boost::filesystem::exists(plate_data_list[i]->thumbnail_file)) {
 				m_plate_list[index]->load_thumbnail_data(plate_data_list[i]->thumbnail_file, m_plate_list[index]->thumbnail_data);
@@ -8658,7 +8695,7 @@ int PartPlateList::load_from_3mf_structure(PlateDataPtrs& plate_data_list, int f
 			}
 		}
 
-		if (m_plater && !plate_data_list[i]->no_light_thumbnail_file.empty()) {
+		if (load_preview_files && !plate_data_list[i]->no_light_thumbnail_file.empty()) {
 			if (boost::filesystem::exists(plate_data_list[i]->no_light_thumbnail_file)) {
 				BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": plate %1%, load no_light_thumbnail_file from %2%.")%(i+1) %plate_data_list[i]->no_light_thumbnail_file;
 				m_plate_list[index]->load_thumbnail_data(plate_data_list[i]->no_light_thumbnail_file, m_plate_list[index]->no_light_thumbnail_data);
@@ -8671,19 +8708,19 @@ int PartPlateList::load_from_3mf_structure(PlateDataPtrs& plate_data_list, int f
 				//m_plate_list[index]->load_pattern_thumbnail_data(plate_data_list[i]->pattern_file);
 			}
 		}*/
-		if (m_plater && !plate_data_list[i]->top_file.empty()) {
+		if (load_preview_files && !plate_data_list[i]->top_file.empty()) {
 			if (boost::filesystem::exists(plate_data_list[i]->top_file)) {
 				BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": plate %1%, load top_thumbnail from %2%.")%(i+1) %plate_data_list[i]->top_file;
 				m_plate_list[index]->load_thumbnail_data(plate_data_list[i]->top_file, m_plate_list[index]->top_thumbnail_data);
 			}
 		}
-		if (m_plater && !plate_data_list[i]->pick_file.empty()) {
+		if (load_preview_files && !plate_data_list[i]->pick_file.empty()) {
 			if (boost::filesystem::exists(plate_data_list[i]->pick_file)) {
 				BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": plate %1%, load pick_thumbnail from %2%.")%(i+1) %plate_data_list[i]->pick_file;
 				m_plate_list[index]->load_thumbnail_data(plate_data_list[i]->pick_file, m_plate_list[index]->pick_thumbnail_data);
 			}
 		}
-		if (m_plater && !plate_data_list[i]->pattern_bbox_file.empty()) {
+		if (load_preview_files && !plate_data_list[i]->pattern_bbox_file.empty()) {
 			if (boost::filesystem::exists(plate_data_list[i]->pattern_bbox_file)) {
 				m_plate_list[index]->load_pattern_box_data(plate_data_list[i]->pattern_bbox_file);
 			}

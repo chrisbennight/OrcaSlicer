@@ -1481,7 +1481,17 @@ int CLI::run(int argc, char **argv)
         }
     }
 
-    bool start_gui = m_actions.empty() && !downward_check;
+    const bool capture_workspace = m_actions.size() == 1 && m_actions.front() == "capture_workspace";
+    if (std::find(m_actions.begin(), m_actions.end(), "capture_workspace") != m_actions.end() &&
+        (!capture_workspace || downward_check || m_config.opt_string("capture_workspace").empty())) {
+        BOOST_LOG_TRIVIAL(error) << "Workspace capture requires a nonempty request file and cannot be combined with other actions";
+        return 1;
+    }
+    if (capture_workspace && (m_input_files.size() != 1 || !boost::algorithm::iends_with(m_input_files.front(), ".3mf"))) {
+        BOOST_LOG_TRIVIAL(error) << "Workspace capture requires exactly one project 3MF";
+        return 1;
+    }
+    bool start_gui = (m_actions.empty() || capture_workspace) && !downward_check;
     if (start_gui) {
         BOOST_LOG_TRIVIAL(info) << "no action, start gui directly" << std::endl;
 #ifdef SLIC3R_GUI
@@ -1497,13 +1507,16 @@ int CLI::run(int argc, char **argv)
         }
     #endif // some linux / unix system
     #if defined(__WXGTK__) && defined(__linux__)
-        apply_discrete_gpu_preference();
+        if (!capture_workspace)
+            apply_discrete_gpu_preference();
     #endif
         Slic3r::GUI::GUI_InitParams params;
         params.argc = argc;
         params.argv = argv;
         params.load_configs = load_configs;
         params.extra_config = std::move(m_extra_config);
+        if (capture_workspace)
+            params.capture_workspace = m_config.opt_string("capture_workspace");
 
         std::vector<std::string>    gcode_files;
         std::vector<std::string>    non_gcode_files;
@@ -4703,7 +4716,10 @@ int CLI::run(int argc, char **argv)
     };
     if (plate_data_src.size() > 0)
     {
-        partplate_list.load_from_3mf_structure(plate_data_src);
+        if (partplate_list.load_from_3mf_structure(plate_data_src) < 0) {
+            record_exit_reson(outfile_dir, CLI_DATA_FILE_ERROR, 0, "Could not load the project plate definitions.", sliced_info);
+            flush_and_exit(CLI_DATA_FILE_ERROR);
+        }
 
         int plate_count = partplate_list.get_plate_count();
         plate_obj_size_infos.resize(plate_count, plate_obj_size_info_t());
@@ -5654,7 +5670,10 @@ int CLI::run(int argc, char **argv)
                         model.clear_objects();
                         model.clear_materials();
                         model = original_model;
-                        partplate_list.load_from_3mf_structure(plate_data_src);
+                        if (!plate_data_src.empty() && partplate_list.load_from_3mf_structure(plate_data_src) < 0) {
+                            record_exit_reson(outfile_dir, CLI_DATA_FILE_ERROR, 0, "Could not restore the project plate definitions.", sliced_info);
+                            flush_and_exit(CLI_DATA_FILE_ERROR);
+                        }
 
                         selected.clear();
                         unselected.clear();
@@ -8239,6 +8258,10 @@ bool CLI::setup(int argc, char **argv)
         for (const t_optiondef_map::value_type &optdef : *options)
             m_config.option(optdef.first, true);
 
+    if (m_given_option_keys.count("capture_workspace") && m_given_option_keys.count("datadir")) {
+        boost::nowide::cerr << "Workspace capture uses a private data directory and cannot be combined with --datadir" << std::endl;
+        return false;
+    }
     set_data_dir(m_config.opt_string("datadir"));
     if (!data_dir().empty() && !boost::filesystem::exists(data_dir())) {
         boost::nowide::cerr << "Could not create data directory: " << data_dir() << std::endl;

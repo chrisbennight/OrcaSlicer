@@ -1162,6 +1162,9 @@ public:
     bool has_mouse_capture() const;
 
     void render(bool only_init = false);
+    const BoundingBoxf3& workspace_bed_bounding_box() const;
+    void render_workspace_bed();
+    void render_workspace_volumes(const std::function<bool(const GLVolume&)>& visible);
     bool is_rendering_enabled()
     {
         return m_enable_render;
@@ -1553,7 +1556,7 @@ private:
     // when the bed shape changed.
     void _render_cad_grid(const Transform3d& view_matrix, const Transform3d& projection_matrix);
     //BBS: add outline drawing logic
-    void _render_objects(GLVolumeCollection::ERenderType type, bool with_outline = true);
+    void _render_objects(GLVolumeCollection::ERenderType type, bool with_outline = true, bool with_imex_ghosts = true);
     // IMEX ghost volumes owned by PartPlate, drawn through the shader the caller bound:
     // the shaded pass's transparent half, or the X-Ray pass below.
     void _render_imex_ghosts(bool xray_pass = false);
