@@ -1481,7 +1481,17 @@ int CLI::run(int argc, char **argv)
         }
     }
 
-    bool start_gui = m_actions.empty() && !downward_check;
+    const bool capture_workspace = m_actions.size() == 1 && m_actions.front() == "capture_workspace";
+    if (std::find(m_actions.begin(), m_actions.end(), "capture_workspace") != m_actions.end() &&
+        (!capture_workspace || m_config.opt_string("capture_workspace").empty())) {
+        BOOST_LOG_TRIVIAL(error) << "Workspace capture requires a nonempty request file and cannot be combined with other actions";
+        return 1;
+    }
+    if (capture_workspace && (m_input_files.size() != 1 || !boost::algorithm::iends_with(m_input_files.front(), ".3mf"))) {
+        BOOST_LOG_TRIVIAL(error) << "Workspace capture requires exactly one project 3MF";
+        return 1;
+    }
+    bool start_gui = (m_actions.empty() || capture_workspace) && !downward_check;
     if (start_gui) {
         BOOST_LOG_TRIVIAL(info) << "no action, start gui directly" << std::endl;
 #ifdef SLIC3R_GUI
@@ -1504,6 +1514,8 @@ int CLI::run(int argc, char **argv)
         params.argv = argv;
         params.load_configs = load_configs;
         params.extra_config = std::move(m_extra_config);
+        if (capture_workspace)
+            params.capture_workspace = m_config.opt_string("capture_workspace");
 
         std::vector<std::string>    gcode_files;
         std::vector<std::string>    non_gcode_files;

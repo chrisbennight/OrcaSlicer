@@ -1,0 +1,31 @@
+name: Native workspace capture
+
+on:
+  pull_request:
+    branches: [printable-2.5.1]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-workspace-capture-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  request-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check native capture request validation
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror -Isrc -isystem deps_src \
+            tests/native_workspace_capture_request.cpp -o "${RUNNER_TEMP}/capture-request-test"
+          "${RUNNER_TEMP}/capture-request-test"
+  native-build:
+    needs: request-contract
+    uses: ./.github/workflows/build_check_cache.yml
+    with:
+      os: ubuntu-24.04
+      arch: ''
+      build-deps-only: false

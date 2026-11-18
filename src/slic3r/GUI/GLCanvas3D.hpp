@@ -1162,6 +1162,9 @@ public:
     bool has_mouse_capture() const;
 
     void render(bool only_init = false);
+    const BoundingBoxf3& workspace_bed_bounding_box() const;
+    void render_workspace_bed();
+    void render_workspace_volumes(const std::function<bool(const GLVolume&)>& visible);
     bool is_rendering_enabled()
     {
         return m_enable_render;

@@ -5328,7 +5328,25 @@ bool PartPlate::intersects(const BoundingBoxf3& bb) const
 	return print_volume.intersects(bb);
 }
 
-void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_body, bool force_background_color, HeightLimitMode mode, int hover_id, bool render_cali, bool show_grid, bool hide_chrome)
+BoundingBoxf3 PartPlate::get_capture_bounding_box(bool show_surface, bool show_identifiers)
+{
+    BoundingBoxf3 bounds;
+    if (show_surface)
+        bounds.merge(m_bounding_box);
+    if (show_identifiers) {
+        if (!m_plate_idx_icon.is_initialized())
+            calc_vertex_for_number(0, false, m_plate_idx_icon);
+        if (m_plate_name_edit_icon.mesh_raycaster == nullptr)
+            generate_plate_name_texture();
+        if (!m_plate_idx_icon.is_initialized() || !m_plate_name_icon.is_initialized() || m_name_texture.get_id() == 0)
+            throw std::runtime_error("Native plate identifier geometry is unavailable");
+        bounds.merge(m_plate_idx_icon.get_bounding_box());
+        bounds.merge(m_plate_name_icon.get_bounding_box());
+    }
+    return bounds;
+}
+
+void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_body, bool force_background_color, HeightLimitMode mode, int hover_id, bool render_cali, bool show_grid, bool hide_chrome, bool show_identifiers, bool show_surface)
 {
     glsafe(::glEnable(GL_DEPTH_TEST));
 
@@ -5341,7 +5359,7 @@ void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projec
         shader->set_uniform("view_model_matrix", view_matrix);
         shader->set_uniform("projection_matrix", projection_matrix);
 
-        if (!bottom) {
+        if (!bottom && show_surface) {
             // draw background
             render_background(force_background_color);
 
@@ -5378,20 +5396,20 @@ void PartPlate::render(const Transform3d& view_matrix, const Transform3d& projec
         shader->stop_using();
     }
 
-    if (wxGetApp().show_plate_gridlines() && show_grid) {
+    if (show_surface && wxGetApp().show_plate_gridlines() && show_grid) {
         glsafe(::glDepthMask(bottom ? GL_TRUE : GL_FALSE));
         render_grid(bottom);
         glsafe(::glDepthMask(GL_TRUE));
     }
 
-    if (!hide_chrome && !bottom && m_selected && !force_background_color) {
+    if (show_surface && !hide_chrome && !bottom && m_selected && !force_background_color) {
         if (m_partplate_list)
             render_logo(bottom, m_partplate_list->render_cali_logo && render_cali);
         else
             render_logo(bottom);
     }
 
-    if (!hide_chrome) {
+    if (!hide_chrome && show_identifiers) {
         render_icons(bottom, only_body, hover_id);
         if (!force_background_color) {
             render_only_numbers(bottom);
@@ -7947,7 +7965,7 @@ void PartPlateList::postprocess_arrange_polygon(arrangement::ArrangePolygon& arr
 
 /*rendering related functions*/
 //render
-void PartPlateList::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current, bool only_body, int hover_id, bool render_cali, bool show_grid, bool hide_chrome, bool hide_inactive)
+void PartPlateList::render(const Transform3d& view_matrix, const Transform3d& projection_matrix, bool bottom, bool only_current, bool only_body, int hover_id, bool render_cali, bool show_grid, bool hide_chrome, bool hide_inactive, const std::set<int>* visible_plates, bool show_identifiers, bool show_surface, bool show_height_limits)
 {
 	const std::lock_guard<std::mutex> local_lock(m_plates_mutex);
 	std::vector<PartPlate*>::iterator it = m_plate_list.begin();
@@ -7962,20 +7980,22 @@ void PartPlateList::render(const Transform3d& view_matrix, const Transform3d& pr
 	load_icon_textures();
 	for (it = m_plate_list.begin(); it != m_plate_list.end(); it++) {
 		int current_index = (*it)->get_index();
+		if (visible_plates && visible_plates->count(current_index) == 0)
+			continue;
 		if ((only_current || hide_inactive) && (current_index != m_current_plate))
 			continue;
 		if (current_index == m_current_plate) {
-			PartPlate::HeightLimitMode height_mode = (only_current)?PartPlate::HEIGHT_LIMIT_NONE:m_height_limit_mode;
+			PartPlate::HeightLimitMode height_mode = (only_current || !show_height_limits)?PartPlate::HEIGHT_LIMIT_NONE:m_height_limit_mode;
 			if (plate_hover_index == current_index)
-                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, plate_hover_action, render_cali, show_grid, hide_chrome);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, plate_hover_action, render_cali, show_grid, hide_chrome, show_identifiers, show_surface);
 			else
-                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, -1, render_cali, show_grid, hide_chrome);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, height_mode, -1, render_cali, show_grid, hide_chrome, show_identifiers, show_surface);
 		}
 		else {
 			if (plate_hover_index == current_index)
-				(*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, plate_hover_action, render_cali, show_grid, hide_chrome);
+				(*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, plate_hover_action, render_cali, show_grid, hide_chrome, show_identifiers, show_surface);
 			else
-                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, -1, render_cali, show_grid, hide_chrome);
+                (*it)->render(view_matrix, projection_matrix, bottom, only_body, false, PartPlate::HEIGHT_LIMIT_NONE, -1, render_cali, show_grid, hide_chrome, show_identifiers, show_surface);
 		}
 	}
 }
