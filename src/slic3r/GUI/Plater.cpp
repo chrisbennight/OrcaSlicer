@@ -9125,12 +9125,14 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                                                                  if (cancel)
                                                                      is_user_cancel = cancel;
                                                              });
-                    if (workspace_capture && plate_data.size() > PartPlateList::MAX_PLATES_COUNT) {
+                    if (plate_data.size() > PartPlateList::MAX_PLATES_COUNT) {
                         release_PlateData_list(plate_data);
                         for (auto* preset : project_presets)
                             delete preset;
                         q->skip_thumbnail_invalid = false;
-                        BOOST_LOG_TRIVIAL(error) << "Workspace capture project exceeds the plate limit";
+                        BOOST_LOG_TRIVIAL(error) << "Project exceeds the plate limit";
+                        if (!workspace_capture)
+                            show_error(q, _L("The project exceeds the supported number of plates."));
                         return empty_result;
                     }
                           BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ":" << __LINE__
@@ -9424,7 +9426,9 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                         Semver old_version(1, 5, 9);
                         // A published 3MF has no project config to migrate: skip the old-version
                         // translations even if a slicer tag slipped through classification.
-                        if (!workspace_capture && (en_3mf_file_type == En3mfType::From_BBS || en_3mf_file_type == En3mfType::From_Orca) && (file_version < old_version) && !published_config.published && load_model && load_config && !config_loaded.empty()) {
+                        // Legacy projects use a different plate grid. Convert the
+                        // grid spacing while preserving plate-local placement.
+                        if ((en_3mf_file_type == En3mfType::From_BBS || en_3mf_file_type == En3mfType::From_Orca) && (file_version < old_version) && !published_config.published && load_model && load_config && !config_loaded.empty()) {
                             translate_old = true;
                             partplate_list.get_plate_size(current_width, current_depth, current_height);
                         }
