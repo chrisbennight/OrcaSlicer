@@ -103,19 +103,20 @@ int GUI_Run(GUI_InitParams &params)
             boost::log::core::get()->remove_sink(capture_log);
     });
     boost::filesystem::path capture_data;
-    Slic3r::ScopeGuard cleanup_capture_data([&]() {
-        if (!capture_data.empty()) {
-            Slic3r::close_log_file();
-            boost::system::error_code error;
-            boost::filesystem::current_path(params.capture_output_directory, error);
-            if (error)
-                BOOST_LOG_TRIVIAL(error) << "Could not restore the capture working directory: " << error.message();
-            error.clear();
-            boost::filesystem::remove_all(capture_data, error);
-            if (error)
-                BOOST_LOG_TRIVIAL(error) << "Could not remove disposable capture configuration: " << error.message();
-        }
-    });
+    const auto remove_capture_data = [&]() {
+        if (capture_data.empty())
+            return true;
+        Slic3r::close_log_file();
+        boost::system::error_code restore_error, remove_error;
+        boost::filesystem::current_path(params.capture_output_directory, restore_error);
+        if (restore_error)
+            BOOST_LOG_TRIVIAL(error) << "Could not restore the capture working directory: " << restore_error.message();
+        boost::filesystem::remove_all(capture_data, remove_error);
+        if (remove_error)
+            BOOST_LOG_TRIVIAL(error) << "Could not remove disposable capture configuration: " << remove_error.message();
+        return !restore_error && !remove_error;
+    };
+    Slic3r::ScopeGuard cleanup_capture_data([&]() { remove_capture_data(); });
     struct CaptureDialogHook : wxModalDialogHook {
         GUI_InitParams& params;
         explicit CaptureDialogHook(GUI_InitParams& value) : params(value) {}
@@ -187,7 +188,11 @@ int GUI_Run(GUI_InitParams &params)
             std::vector<char *> argv;
             argv.push_back(params.argv[0]);
             const int result = wxEntry(argc, argv.data());
-            return params.capture_workspace.empty() ? result : params.capture_exit_code;
+            if (params.capture_workspace.empty())
+                return result;
+            const bool removed = remove_capture_data();
+            cleanup_capture_data.reset();
+            return !removed && params.capture_exit_code == 0 ? 1 : params.capture_exit_code;
         } else {
             return wxEntry(params.argc, params.argv);
         }

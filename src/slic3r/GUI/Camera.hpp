@@ -142,7 +142,7 @@ public:
     void apply_viewport() const;
     // Calculates and applies the projection matrix tighting the frustrum z range around the given box.
     // If larger z span is needed, pass the desired values of near and far z (negative values are ignored)
-    void apply_projection(const BoundingBoxf3& box, double near_z = -1.0, double far_z = -1.0);
+    bool apply_projection(const BoundingBoxf3& box, double near_z = -1.0, double far_z = -1.0);
 
     void apply_projection(double left, double right, double bottom, double top, double near_z, double far_z);
 

@@ -289,7 +289,7 @@ void Camera::apply_viewport() const
     glsafe(::glViewport(m_viewport[0], m_viewport[1], m_viewport[2], m_viewport[3]));
 }
 
-void Camera::apply_projection(const BoundingBoxf3& box, double near_z, double far_z)
+bool Camera::apply_projection(const BoundingBoxf3& box, double near_z, double far_z)
 {
     double w = 0.0;
     double h = 0.0;
@@ -328,7 +328,12 @@ void Camera::apply_projection(const BoundingBoxf3& box, double near_z, double fa
     }
     }
 
+    if (!std::isfinite(w) || !std::isfinite(h) || w <= 0.0 || h <= 0.0 ||
+        !std::isfinite(m_frustrum_zs.first) || !std::isfinite(m_frustrum_zs.second) ||
+        m_frustrum_zs.first >= m_frustrum_zs.second)
+        return false;
     apply_projection(-w, w, -h, h, m_frustrum_zs.first, m_frustrum_zs.second);
+    return m_view_matrix.matrix().allFinite() && m_projection_matrix.matrix().allFinite();
 }
 
 void Camera::apply_projection(double left, double right, double bottom, double top, double near_z, double far_z)

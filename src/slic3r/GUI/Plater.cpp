@@ -8348,7 +8348,8 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
     // BBS: save project confirm
     up_to_date(true, false);
     up_to_date(true, true);
-    model.set_need_backup();
+    if (!wxGetApp().is_workspace_capture())
+        model.set_need_backup();
 
     // BBS: restore project
     if (wxGetApp().is_editor()) {

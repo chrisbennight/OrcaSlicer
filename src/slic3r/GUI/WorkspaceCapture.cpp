@@ -243,7 +243,8 @@ void capture_workspace(const std::string& request_json, const std::string& outpu
     if (!custom_target && !custom_zoom) {
         // The ordinary native fit is planar. Measure all corners through the
         // actual projection so perspective magnification also fits the margin.
-        camera.apply_projection(bounds);
+        if (!camera.apply_projection(bounds))
+            throw std::runtime_error("Native camera cannot frame the layout bounds");
         const Eigen::Matrix4d matrix = camera.get_projection_matrix().matrix() * camera.get_view_matrix().matrix();
         double extent = 0;
         for (int corner = 0; corner != 8; ++corner) {
@@ -274,7 +275,8 @@ void capture_workspace(const std::string& request_json, const std::string& outpu
             throw std::runtime_error("Requested native camera zoom exceeds the layout's supported range");
     }
     camera.apply_viewport();
-    camera.apply_projection(bounds);
+    if (!camera.apply_projection(bounds))
+        throw std::runtime_error("Native camera cannot project the requested view");
 
     // The interactive GUI shares this context and may leave errors from its
     // toolbar drawing. Capture checks only its own framebuffer and draw calls.
